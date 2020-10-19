@@ -6,13 +6,10 @@ from strategy.random import RandomStrategy
 
 USER = "slong"
 EMAIL = "slong@veepee.com"
-ACTIONS = [
-    "up", "down", "left", "right", "fire-up", "fire-down", "fire-left",
-    "fire-right"
-]
 TAG = "Random"
 
 server = Flask("AiServer-{tag}".format(tag=TAG))
+
 
 @server.route("/name", methods=["POST"])
 def get_username():
@@ -22,8 +19,9 @@ def get_username():
 @server.route("/move", methods=["POST"])
 def next_move():
     environement = request.get_json()
-    move = 
-    return jsonify(move=choice(ACTIONS))
+    strategy = RandomStrategy()
+    move = strategy.tick(environement)
+    return jsonify(move=move)
 
 
 if __name__ == '__main__':
