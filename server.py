@@ -2,26 +2,32 @@
 # -*- coding: utf-8 -*-
 
 from flask import Flask, request, jsonify
-from strategy.random import RandomStrategy
+from ai import RandomStrategy
+from env import RecordEnvironement
 
 USER = "slong"
 EMAIL = "slong@veepee.com"
-TAG = "Random"
+TAG = "MaxReward"
 
 server = Flask("AiServer-{tag}".format(tag=TAG))
+
+env = RecordEnvironement()
+strategy = RandomStrategy(env)
 
 
 @server.route("/name", methods=["POST"])
 def get_username():
-    jsonify(username=USER, email=EMAIL)
+    return jsonify(username=USER, email=EMAIL)
 
 
 @server.route("/move", methods=["POST"])
 def next_move():
-    environement = request.get_json()
-    strategy = RandomStrategy()
-    move = strategy.tick(environement)
-    return jsonify(move=move)
+    state = request.get_json()
+    env.update_from_state(state)
+    best_move = strategy.best_action()
+    env.update_from_action(best_move)
+    env.save()
+    return jsonify(move=best_move)
 
 
 if __name__ == '__main__':

@@ -2,16 +2,48 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
 from random import shuffle
+from pathlib import Path
+import json
 
 import attr
 
-from common import FIREACTION, MOVEACTION, Agent, BoardState, Enemy, Player
+from common import FIREACTION, BoardState, Enemy, Player
 
-MEMORY = 10
+
+class Environment:
+    def update_from_state(self, state):
+        pass
+
+    def update_from_action(self, action):
+        pass
+
+    def save(self, action):
+        pass
 
 
 @attr.s
-class Environment():
+class RecordEnvironement(Environment):
+    """
+    A environement that just records every response returned by server
+    """
+    saved_game = attr.ib(default={}, init=False)
+    step = attr.ib(default=0, init=False)
+
+    def update_from_state(self, state):
+        self.saved_game["state"] = state
+        self.saved_game["step"] = self.step
+        self.step += 1
+
+    def update_from_action(self, player_action):
+        self.saved_game["player_action"] = str(player_action)
+
+    def save(self):
+        save_path = Path("state-{}.json".format(self.step))
+        json.dump(self.saved_game, save_path.open("w"))
+
+
+@attr.s
+class RecurrentEnvironment(Environment):
 
     # board, NOTE: board[ny][nx], ny before nx in indexing
     board = attr.ib(default=None, init=False)
@@ -43,7 +75,7 @@ class Environment():
         how much explored area will be added in the board
         """
         x1 = max(0, nx - self.short_range_x)
-        x2 = min(self.board_width-1, nx + self.short_range_x)
+        x2 = min(self.board_width - 1, nx + self.short_range_x)
 
         y1 = max(0, ny - self.short_range_y)
         y2 = min(self.board_height - 1, ny + self.short_range_y)
@@ -57,6 +89,8 @@ class Environment():
 
     def update_from_state(self, state):
         self.update_board(state)
+        #  self.update_other_players(state)
+        #  self.update_enemies(state)
         self.update_other_player_by_positions(state)
         self.update_enemies_by_positions(state)
         self.update_player(state)
@@ -75,9 +109,8 @@ class Environment():
 
         # init board with all UNKNOWN
         if self.board is None:
-            self.board = [
-                [BoardState.UNKNOWN]*size["width"]
-            ]*size["height"]
+            self.board = [[BoardState.UNKNOWN] * size["width"]
+                          ] * size["height"]
 
         # update visible area
         self.varea_x1 = area["x1"]
