@@ -25,6 +25,8 @@ class Environment():
     varea_y2 = attr.ib(default=-1, init=False)
 
     player = attr.ib(default=None, init=False)
+    short_range_x = attr.ib(default=None, init=False)
+    short_range_y = attr.ib(default=None, init=False)
     other_players = attr.ib(default=[], init=False)
     enemies = attr.ib(default=[], init=False)
 
@@ -34,6 +36,24 @@ class Environment():
                 or self.board[y][x] == BoardState.WALL:
             return False
         return True
+
+    def added_exploration_area(self, nx, ny):
+        """
+        If the next position of player is (nx, ny),
+        how much explored area will be added in the board
+        """
+        x1 = max(0, nx - self.short_range_x)
+        x2 = min(self.board_width-1, nx + self.short_range_x)
+
+        y1 = max(0, ny - self.short_range_y)
+        y2 = min(self.board_height - 1, ny + self.short_range_y)
+
+        count = 0
+        for i in range(x1, x2 + 1):
+            for j in range(y1, y2 + 1):
+                if self.board[j][i] == BoardState.UNKNOWN:
+                    count += 1
+        return count
 
     def update_from_state(self, state):
         self.update_board(state)
@@ -113,15 +133,6 @@ class Environment():
                 if self.board[ay][x] == BoardState.WALL:
                     return False
         return True
-
-    def clear_shot_moves(self, agent, target):
-        """
-        minimum moves to take to get a clear shot
-        assume that agent and target are all not mobile
-        """
-
-
-
 
     def update_agent_by_positions(self, new_positions, agents, kind="enemy"):
         """Base on the positions of agents in current visible area we recevied,
@@ -203,4 +214,10 @@ class Environment():
                                                       self.enemies, "enemy")
 
     def update_player(self, state):
-        pass
+        player = state["player"]
+        self.player.x = player["position"]["x"]
+        self.player.y = player["position"]["y"]
+        if self.short_range_x is None:
+            self.short_range_x = abs(self.varea_x1 - self.player.x)
+        if self.short_range_y is None:
+            self.short_range_y = abs(self.varea_y1 - self.player.y)

@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from collections import deque
 from random import choice
-from common import MOVEACTION, FIREACTION, Player, Enemy
+
+from common import FIREACTION, MOVEACTION, Enemy, Player
 
 
 class Stratey:
@@ -24,13 +26,13 @@ class RewardMaxStrategy(Stratey):
         super().__init__(env)
 
     def best_action(self):
-        rewards = []
-        for action in Stratey.ALL_ACTIONS:
-            reward = self.evalute_action(action)
-            rewards.append(reward)
         # chose action that maximize actions if there is action with pos rewards
         # or using a epsilon-greedy approach
         # TODO
+        agent_to_actions = self.next_actions_of_others()
+        player_next_actions = self.env.player.next_actions(self.env)
+        agent_to_actions[self.env.player] = player_next_actions
+
 
     def next_actions_of_others(self):
         """
@@ -46,6 +48,52 @@ class RewardMaxStrategy(Stratey):
             agent_to_actions[enemy] = enemy.next_actions(self.env)
         return agent_to_actions
 
+    def clear_shot_moves(self, player_position, agents_next_position, max_step=10):
+        """
+        Get the minimum moves between player and all other agents (other players and
+        enemies.
+        Here we use a simple bfs search as we can assume that the visible area is quite small
+        """
+        agents_to_moves = {}
+        queue = deque([])
+        queue.append((player_position, 0))
+        seen_positions = set()
+        while len(queue) > 0:
+            base_pos, step = queue.popleft()
+            if step > max_step:
+                break
+            if base_pos in seen_positions:
+                continue
+            seen_positions.add(base_pos)
+
+            # add next search candidates
+            for action in list(MOVEACTION):
+                new_pos = action.move(base_pos[0], base_pos[1])
+                queue.append(new_pos, step + 1)
+
+            if self.env.valid_pos(base_pos[0], base_pos[1]):
+                # check if this new pos has a clear shot of any enemies or players
+                for ag, ag_pos in agents_next_position.items():
+                    if ag not in agents_to_moves:
+                        if base_pos.x == ag.x and base_pos.y > ag.y:
+                            if self.env.has_clear_shoot(base_pos, FIREACTION.UP, ag_pos):
+                                agents_to_moves[ag] = step
+                        elif base_pos.x == ag.x and base_pos.y < ag.y:
+                            if self.env.has_clear_shoot(base_pos, FIREACTION.DOWN, ag_pos):
+                                agents_to_moves[ag] = step
+                        elif base_pos.y == ag.y and base_pos.x < ag.x:
+                            if self.env.has_clear_shoot(base_pos, FIREACTION.RIGHT, ag_pos):
+                                agents_to_moves[ag] = step
+                        elif base_pos.y == ag.y and base_pos.x > ag.x:
+                            if self.env.has_clear_shoot(base_pos, FIREACTION.LEFT, ag_pos):
+                                agents_to_moves[ag] = step
+                        else:
+                            pass
+        for ag in agents_next_position:
+            if ag not agents_to_moves:
+                agents_to_moves[ag] = 9999
+        return agents_to_moves
+        
     def step_reward(self, player_action, agent_to_actions):
         """After knowing the next action of every agents in visible area,
         try getting the rewards
@@ -117,7 +165,6 @@ class RewardMaxStrategy(Stratey):
         for agent, action in agent_to_actions.items():
             if not isinstance(agent, Enemy):
                 continue
-
             new_pos = action.move(agent.x, agent.y)
             agents_next_position[agent] = new_pos
             if new_pos == player_next_position:
@@ -128,9 +175,43 @@ class RewardMaxStrategy(Stratey):
         reward += int(dead_times > 0) * (-100) + kill_times * 100
 
         # ===========================================================================
-        # enemy appraoching reward
+        # enemy approaching reward (sometimes player chose not to move and
+        # enemy can approach you if they got no other choice
         # ===========================================================================
+        agents_clear_shot_moves = self.clear_shot_moves(player_position, agents_next_position)
+        reward += sum(map(lambda ag, m: 1.0 / m * 40.0,
+                          filter(lambda ag, m: isinstance(ag, Enemy),
+                                 agents_clear_shot_moves.items())
+                          ))
+        # ===========================================================================
+        # 1. board exploration reward: number of unknown space explored
+        # 2. don't repeat the path that you already did
+        # ===========================================================================
+        # newly explored area
+        count = self.env.added_exploration_area(player_position[0],
+                                                player_position[1])
+        reward += count*2
+        # in some case, moves in all directions could lead to 0 newly space explored
+        # so what should do?
+        # approach: look ahead n step
+        look_ahead_step = 5
+        look_ahead_count = 0
+        fx, fy = player_next_position[0], player_next_position[1]
+        if isinstance(player_action, MOVEACTION):
+            for i in range(look_ahead_step):
+                fx, fy = player_action.move(fx, fy)
+                if not self.env.valid_pos(fx, fy):
+                    break
+                look_ahead_count += self.env.added_exploration_area(fx, fy)
+        reward += look_ahead_count
 
-        # ===========================================================================
-        # board exploration reward
-        # ===========================================================================
+        history_look_ahead = 10
+        repeat = 0
+        # don't repeat the move that you just did in last steps
+        # this help us get rid of a dead loop
+        for i in range(1, min(history_look_ahead+1, len(player.positions)+1)):
+            if player_next_position == player.positions[-i]:
+                repeat = i
+                break
+        reward -= (history_look_ahead - repeat)
+        return reward
