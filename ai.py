@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from collections import deque
+from itertools import product
 from random import choice
 
 from common import FIREACTION, MOVEACTION, Enemy, Player
@@ -26,13 +27,39 @@ class RewardMaxStrategy(Stratey):
         super().__init__(env)
 
     def best_action(self):
-        # chose action that maximize actions if there is action with pos rewards
-        # or using a epsilon-greedy approach
-        # TODO
+        """
+        chose action that maximize actions if there is action with pos rewards
+        TODO epsilon-greedy approach
+        """
         agent_to_actions = self.next_actions_of_others()
         player_next_actions = self.env.player.next_actions(self.env)
-        agent_to_actions[self.env.player] = player_next_actions
 
+        # for each action of player, we calculate the expected reward
+        expected_rewards = []
+        for p_action in player_next_actions:
+            # get all combinations of possible actions of other agents
+            # assume that the equi prob of each action
+            all_combs = [
+                product([ag], actions)
+                for ag, actions in agent_to_actions.items()
+            ]
+            tot_reward = 0
+            tot_count = 0
+            for comb in product(*all_combs):
+                tot_count += 1
+                agent_to_one_action = dict(comb)
+                tot_reward += self.step_reward(p_action, agent_to_one_action)
+            expected_rewards.append(tot_reward/tot_count if tot_count > 0 else 0)
+        # chose the action that maximize the expected reward
+        max_reward = max(expected_rewards)
+        max_actions = [
+            a for i, a in enumerate(player_next_actions)
+            if expected_rewards[i] == max_reward
+        ]
+        if len(max_actions) == 1:
+            return max_actions[0]
+        else:
+            return choice(max_actions)
 
     def next_actions_of_others(self):
         """
