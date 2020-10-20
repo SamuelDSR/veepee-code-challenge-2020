@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from collections import defaultdict
-from random import shuffle
 from pathlib import Path
 import json
 
 import attr
 
-from common import FIREACTION, BoardState, Enemy, Player
+from common import FIREACTION, BoardState
 
 
 class Environment:
@@ -166,85 +164,6 @@ class RecurrentEnvironment(Environment):
                 if self.board[ay][x] == BoardState.WALL:
                     return False
         return True
-
-    def update_agent_by_positions(self, new_positions, agents, kind="enemy"):
-        """Base on the positions of agents in current visible area we recevied,
-        try to update the agents that we have seen in last visible area, this enables
-        a history tracking of the moves and actions of the agents.
-        Args:
-            new_positions: new seen positions
-            agents: agents last state
-            kind: enemy or other players
-
-        Returns:
-            _agents: agents current state
-        """
-        n_pose_to_agent_map = defaultdict(set)
-
-        # store agents for next frame
-        _agents = []
-
-        # treat dead or invisible agents
-        for ag in agents:
-            n_poses = ag.next_positions(self.board)
-            # if none of next moves are in new positions, dead or out of invisible
-            if not any(map(lambda m: m in new_positions, n_poses)):
-                # dead
-                if not self._can_move_out_visible(ag):
-                    ag.is_dead = True
-                # invisible
-                else:
-                    ag.positions.append((ag.x, ag.y))
-                    ag.x = -1
-                    ag.y = -1
-                # the player is resolved either dead or invisible
-                _agents.append(ag)
-            else:
-                for m in n_poses:
-                    n_pose_to_agent_map[m].add(ag)
-
-        tries = 0
-        while len(new_positions) != 0:
-            # dead loop guard
-            tries += 1
-            if tries > 20:
-                break
-            shuffle(new_positions)
-            pos = new_positions.pop()
-            # only one known player can move to this position
-            # in some case, this new pos is at the boundry, and this only known players
-            # happens to be killed and a new player fills it. but we don't consider this
-            # since it's really rare
-            if len(n_pose_to_agent_map.get(pos, set())) == 1:
-                ag = n_pose_to_agent_map[pos].pop()
-                ag.positions.append((ag.x, ag.y))
-                ag.x = pos[0]
-                ag.y = pos[1]
-                _agents.append(ag)
-                # since this agent is resolved, we remove it if appears in other n_moves_to_map
-                for k, v in n_pose_to_agent_map.items():
-                    if ag in v:
-                        v.remove(ag)
-            else:
-                new_positions.add(pos)
-
-        # if there are still unresolved new pos left, added as new agents
-        for pos in new_positions:
-            if kind == "enemy":
-                _agents.append(Enemy(x=pos[0], y=pos[1]))
-            else:
-                _agents.append(Player(x=pos[0], y=pos[1]))
-        return _agents
-
-    def update_other_player_by_positions(self, state):
-        new_positions = set((p['x'], p['y']) for p in state["players"])
-        self.other_players = self.update_agent_by_positions(
-            new_positions, self.other_players, "other players")
-
-    def update_enemies_by_positions(self, state):
-        new_positions = set((p['x'], p['y']) for p in state["enemies"])
-        self.enemies = self.update_agent_by_positions(new_positions,
-                                                      self.enemies, "enemy")
 
     def update_player(self, state):
         player = state["player"]
