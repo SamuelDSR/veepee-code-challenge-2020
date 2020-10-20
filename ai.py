@@ -11,21 +11,22 @@ class Stratey:
     ALL_ACTIONS = list(MOVEACTION) + list(FIREACTION)
 
     def __init__(self, env):
-        self._env = env
+        self.env = env
 
     def best_action(self):
-        pass
+        best = ""
+        self.env.update_from_action(best)
+        return best
 
 
 class RandomStrategy(Stratey):
     def best_action(self):
-        return choice(Stratey.ALL_ACTIONS)
+        best = choice(Stratey.ALL_ACTIONS)
+        self.env.update_from_action(best)
+        return str(best)
 
 
 class RewardMaxStrategy(Stratey):
-    def __init__(self, env):
-        super().__init__(env)
-
     def best_action(self):
         """
         chose action that maximize actions if there is action with pos rewards
@@ -49,7 +50,8 @@ class RewardMaxStrategy(Stratey):
                 tot_count += 1
                 agent_to_one_action = dict(comb)
                 tot_reward += self.step_reward(p_action, agent_to_one_action)
-            expected_rewards.append(tot_reward/tot_count if tot_count > 0 else 0)
+            expected_rewards.append(tot_reward /
+                                    tot_count if tot_count > 0 else 0)
         # chose the action that maximize the expected reward
         max_reward = max(expected_rewards)
         max_actions = [
@@ -57,9 +59,9 @@ class RewardMaxStrategy(Stratey):
             if expected_rewards[i] == max_reward
         ]
         if len(max_actions) == 1:
-            return max_actions[0]
+            return str(max_actions[0])
         else:
-            return choice(max_actions)
+            return str(choice(max_actions))
 
     def next_actions_of_others(self):
         """
@@ -75,7 +77,10 @@ class RewardMaxStrategy(Stratey):
             agent_to_actions[enemy] = enemy.next_actions(self.env)
         return agent_to_actions
 
-    def clear_shot_moves(self, player_position, agents_next_position, max_step=10):
+    def clear_shot_moves(self,
+                         player_position,
+                         agents_next_position,
+                         max_step=10):
         """
         Get the minimum moves between player and all other agents (other players and
         enemies.
@@ -103,24 +108,28 @@ class RewardMaxStrategy(Stratey):
                 for ag, ag_pos in agents_next_position.items():
                     if ag not in agents_to_moves:
                         if base_pos.x == ag.x and base_pos.y > ag.y:
-                            if self.env.has_clear_shoot(base_pos, FIREACTION.UP, ag_pos):
+                            if self.env.has_clear_shoot(
+                                    base_pos, FIREACTION.UP, ag_pos):
                                 agents_to_moves[ag] = step
                         elif base_pos.x == ag.x and base_pos.y < ag.y:
-                            if self.env.has_clear_shoot(base_pos, FIREACTION.DOWN, ag_pos):
+                            if self.env.has_clear_shoot(
+                                    base_pos, FIREACTION.DOWN, ag_pos):
                                 agents_to_moves[ag] = step
                         elif base_pos.y == ag.y and base_pos.x < ag.x:
-                            if self.env.has_clear_shoot(base_pos, FIREACTION.RIGHT, ag_pos):
+                            if self.env.has_clear_shoot(
+                                    base_pos, FIREACTION.RIGHT, ag_pos):
                                 agents_to_moves[ag] = step
                         elif base_pos.y == ag.y and base_pos.x > ag.x:
-                            if self.env.has_clear_shoot(base_pos, FIREACTION.LEFT, ag_pos):
+                            if self.env.has_clear_shoot(
+                                    base_pos, FIREACTION.LEFT, ag_pos):
                                 agents_to_moves[ag] = step
                         else:
                             pass
         for ag in agents_next_position:
-            if ag not agents_to_moves:
+            if ag not in agents_to_moves:
                 agents_to_moves[ag] = 9999
         return agents_to_moves
-        
+
     def step_reward(self, player_action, agent_to_actions):
         """After knowing the next action of every agents in visible area,
         try getting the rewards
@@ -169,14 +178,15 @@ class RewardMaxStrategy(Stratey):
             if not isinstance(action, FIREACTION):
                 continue
             # check if player is killed by other players
-            if self.env.has_clear_shoot(agents_next_position[agent],
-                                        action, player_next_position):
+            if self.env.has_clear_shoot(agents_next_position[agent], action,
+                                        player_next_position):
                 killed += 1
 
         # check if kill other player or enemies
         if isinstance(player_action, FIREACTION):
             for agent, pos in agents_next_position:
-                if self.env.has_clear_shoot(player_next_position, player_action, pos):
+                if self.env.has_clear_shoot(player_next_position,
+                                            player_action, pos):
                     if isinstance(agent, Player):
                         killed_others += 1
                     else:
@@ -205,19 +215,21 @@ class RewardMaxStrategy(Stratey):
         # enemy approaching reward (sometimes player chose not to move and
         # enemy can approach you if they got no other choice
         # ===========================================================================
-        agents_clear_shot_moves = self.clear_shot_moves(player_position, agents_next_position)
-        reward += sum(map(lambda ag, m: 1.0 / m * 40.0,
-                          filter(lambda ag, m: isinstance(ag, Enemy),
-                                 agents_clear_shot_moves.items())
-                          ))
+        agents_clear_shot_moves = self.clear_shot_moves(
+            player_next_position, agents_next_position)
+        reward += sum(
+            map(
+                lambda ag, m: 1.0 / m * 40.0,
+                filter(lambda ag, m: isinstance(ag, Enemy),
+                       agents_clear_shot_moves.items())))
         # ===========================================================================
         # 1. board exploration reward: number of unknown space explored
         # 2. don't repeat the path that you already did
         # ===========================================================================
         # newly explored area
-        count = self.env.added_exploration_area(player_position[0],
-                                                player_position[1])
-        reward += count*2
+        count = self.env.added_exploration_area(player_next_position[0],
+                                                player_next_position[1])
+        reward += count * 2
         # in some case, moves in all directions could lead to 0 newly space explored
         # so what should do?
         # approach: look ahead n step
@@ -236,7 +248,8 @@ class RewardMaxStrategy(Stratey):
         repeat = 0
         # don't repeat the move that you just did in last steps
         # this help us get rid of a dead loop
-        for i in range(1, min(history_look_ahead+1, len(player.positions)+1)):
+        for i in range(1, min(history_look_ahead + 1,
+                              len(player.positions) + 1)):
             if player_next_position == player.positions[-i]:
                 repeat = i
                 break

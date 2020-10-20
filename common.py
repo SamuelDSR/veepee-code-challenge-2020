@@ -27,6 +27,9 @@ class MOVEACTION(Enum):
     def __getitem__(self, idx):
         return self.value[idx]
 
+    def __str__(self):
+        return self.name.lower()
+
     def move(self, x, y):
         return (x + self.value[0],
                 y + self.value[1])
@@ -41,6 +44,9 @@ class FIREACTION(Enum):
     DOWN = (eq, lt)
     LEFT = (gt, eq)
     RIGHT = (lt, eq)
+
+    def __str__(self):
+        return "fire-{}".format(self.name.lower())
 
     def __getitem__(self, idx):
         return self.value[idx]
