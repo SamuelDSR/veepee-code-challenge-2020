@@ -23,6 +23,8 @@ class MOVEACTION(Enum):
     DOWN = (0, 1)
     LEFT = (-1, 0)
     RIGHT = (1, 0)
+    # player can return an invalid reponse so its position can remain unchanged
+    INVALID = (100, 100)
 
     def __getitem__(self, idx):
         return self.value[idx]
@@ -31,8 +33,11 @@ class MOVEACTION(Enum):
         return self.name.lower()
 
     def move(self, x, y):
-        return (x + self.value[0],
-                y + self.value[1])
+        if self.name != "INVALID":
+            return (x + self.value[0],
+                    y + self.value[1])
+        else:
+            return (x, y)
 
 
 class FIREACTION(Enum):
@@ -65,7 +70,7 @@ class FIREACTION(Enum):
         return False
 
 
-@attr.s(eq=False, hash=True)
+@attr.s(eq=False)
 class Agent:
     x = attr.ib()
     y = attr.ib()
@@ -106,7 +111,7 @@ class Agent:
             return actions, []
 
 
-@attr.s(eq=False, hash=True)
+@attr.s(eq=False)
 class Player(Agent):
     SHOOT_COOLDOWN_DELAY = 5
 
@@ -132,6 +137,6 @@ class Player(Agent):
             return actions, []
 
 
-@attr.s(eq=False, hash=True)
+@attr.s(eq=False)
 class Enemy(Agent):
     is_neutral = attr.ib(default=True)

@@ -5,7 +5,7 @@ import json
 
 import attr
 
-from common import FIREACTION, BoardState
+from common import FIREACTION, BoardState, Player, Enemy
 
 
 class Environment:
@@ -15,7 +15,7 @@ class Environment:
     def update_from_action(self, action):
         pass
 
-    def save(self, action):
+    def save(self):
         pass
 
 
@@ -60,6 +60,21 @@ class RecurrentEnvironment(Environment):
     other_players = attr.ib(default=[], init=False)
     enemies = attr.ib(default=[], init=False)
 
+    def print_board(self):
+        def _print_cell(c):
+            if c == BoardState.FREE:
+                return "_"
+            elif c == BoardState.WALL:
+                return "#"
+            else:
+                return "X"
+        rows = [
+            "  ".join(map(lambda c: _print_cell(c), r))
+            for r in self.board
+        ]
+        bb = "\n".join(rows)
+        print(bb)
+
     def valid_pos(self, x, y):
         if x < 0 or x > self.board_width - 1 \
                 or y < 0 or y > self.board_height - 1 \
@@ -87,11 +102,24 @@ class RecurrentEnvironment(Environment):
 
     def update_from_state(self, state):
         self.update_board(state)
-        #  self.update_other_players(state)
-        #  self.update_enemies(state)
-        self.update_other_player_by_positions(state)
-        self.update_enemies_by_positions(state)
+        self.update_other_players(state)
+        self.update_enemies(state)
         self.update_player(state)
+
+    def update_other_players(self, state):
+        players = state["players"]
+        self.other_players = [
+            Player(x=p['x'], y=p['y'])
+            for p in players
+        ]
+
+    def update_enemies(self, state):
+        enemies = state["enemies"]
+        self.enemies = [
+            Enemy(x=e['x'], y=e['y'], is_neutral=e["neutral"])
+            for e in enemies
+        ]
+
 
     def update_board(self, state):
         """For a board,
@@ -99,7 +127,7 @@ class RecurrentEnvironment(Environment):
         1: free space
         2: wall
         """
-        area = state["player"]
+        area = state["player"]["area"]
         size = state["board"]["size"]
         wall = state["board"]["walls"]
         self.board_width = size["width"]
@@ -107,13 +135,15 @@ class RecurrentEnvironment(Environment):
 
         # init board with all UNKNOWN
         if self.board is None:
-            self.board = [[BoardState.UNKNOWN] * size["width"]
-                          ] * size["height"]
+            self.board = [
+                [BoardState.UNKNOWN for i in range(size["width"])]
+                for j in range(size["height"])
+            ]
 
         # update visible area
         self.varea_x1 = area["x1"]
         self.varea_y1 = area["y1"]
-        self.varea_y1 = area["x2"]
+        self.varea_x2 = area["x2"]
         self.varea_y2 = area["y2"]
 
         # init all visible area as free space
@@ -124,6 +154,9 @@ class RecurrentEnvironment(Environment):
         # update walls
         for w in wall:
             self.board[w["y"]][w["x"]] = BoardState.WALL
+
+        self.print_board()
+
 
     def inside_visible(self, x, y):
         if self.varea_x1 <= x <= self.varea_x2 and self.varea_y1 <= y <= self.varea_y2:
@@ -166,9 +199,12 @@ class RecurrentEnvironment(Environment):
         return True
 
     def update_player(self, state):
+        if self.player is None:
+            self.player = Player(x=0, y=0)
         player = state["player"]
         self.player.x = player["position"]["x"]
         self.player.y = player["position"]["y"]
+        self.player.positions.append((self.player.x, self.player.y))
         if self.short_range_x is None:
             self.short_range_x = abs(self.varea_x1 - self.player.x)
         if self.short_range_y is None:
