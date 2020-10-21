@@ -3,6 +3,7 @@
 from collections import deque
 from itertools import product
 from random import choice
+from copy import copy
 
 from common import FIREACTION, MOVEACTION, Enemy, Player
 
@@ -33,8 +34,7 @@ class RewardMaxStrategy(Stratey):
         TODO epsilon-greedy approach
         """
         agent_to_actions = self.next_actions_of_others()
-        player_next_actions = self.env.player.next_actions(self.env)
-
+        player_next_actions, _ = self.env.player.next_actions(self.env)
         # for each action of player, we calculate the expected reward
         expected_rewards = []
         for p_action in player_next_actions:
@@ -53,6 +53,7 @@ class RewardMaxStrategy(Stratey):
             expected_rewards.append(tot_reward /
                                     tot_count if tot_count > 0 else 0)
         # chose the action that maximize the expected reward
+        import ipdb; ipdb.set_trace()
         max_reward = max(expected_rewards)
         max_actions = [
             a for i, a in enumerate(player_next_actions)
@@ -71,10 +72,10 @@ class RewardMaxStrategy(Stratey):
             agent_to_actions: dict(agent-> ([actions], [probs])
         """
         agent_to_actions = {}
-        for player in self.other_players:
-            agent_to_actions[player] = player.next_actions(self.env)
+        for player in self.env.other_players:
+            agent_to_actions[player] = player.next_actions(self.env)[0]
         for enemy in self.env.enemies:
-            agent_to_actions[enemy] = enemy.next_actions(self.env)
+            agent_to_actions[enemy] = enemy.next_actions(self.env)[0]
         return agent_to_actions
 
     def clear_shot_moves(self,
@@ -90,42 +91,53 @@ class RewardMaxStrategy(Stratey):
         queue = deque([])
         queue.append((player_position, 0))
         seen_positions = set()
-        while len(queue) > 0:
+
+        # patch
+        # remove agents pos that already collides with player position when calculate shot moves
+        agents_next_position_copy = copy(agents_next_position)
+        for ag, ag_pos in agents_next_position.items():
+            if ag_pos == player_position:
+                del agents_next_position_copy[ag]
+
+        # if there are still agents that are not determined
+        while len(queue) > 0 and len(agents_to_moves) < len(
+                agents_next_position_copy):
             base_pos, step = queue.popleft()
             if step > max_step:
                 break
-            if base_pos in seen_positions:
-                continue
             seen_positions.add(base_pos)
 
             # add next search candidates
             for action in list(MOVEACTION):
                 new_pos = action.move(base_pos[0], base_pos[1])
-                queue.append(new_pos, step + 1)
+                if self.env.valid_pos(
+                        new_pos[0],
+                        new_pos[1]) and new_pos not in seen_positions:
+                    queue.append((new_pos, step + 1))
 
-            if self.env.valid_pos(base_pos[0], base_pos[1]):
-                # check if this new pos has a clear shot of any enemies or players
-                for ag, ag_pos in agents_next_position.items():
-                    if ag not in agents_to_moves:
-                        if base_pos.x == ag.x and base_pos.y > ag.y:
-                            if self.env.has_clear_shoot(
-                                    base_pos, FIREACTION.UP, ag_pos):
-                                agents_to_moves[ag] = step
-                        elif base_pos.x == ag.x and base_pos.y < ag.y:
-                            if self.env.has_clear_shoot(
-                                    base_pos, FIREACTION.DOWN, ag_pos):
-                                agents_to_moves[ag] = step
-                        elif base_pos.y == ag.y and base_pos.x < ag.x:
-                            if self.env.has_clear_shoot(
-                                    base_pos, FIREACTION.RIGHT, ag_pos):
-                                agents_to_moves[ag] = step
-                        elif base_pos.y == ag.y and base_pos.x > ag.x:
-                            if self.env.has_clear_shoot(
-                                    base_pos, FIREACTION.LEFT, ag_pos):
-                                agents_to_moves[ag] = step
-                        else:
-                            pass
-        for ag in agents_next_position:
+            # check if this new pos has a clear shot of any enemies or players
+            for ag, ag_pos in agents_next_position_copy.items():
+                if ag not in agents_to_moves:
+                    if base_pos[0] == ag_pos[0] and base_pos[1] > ag_pos[1]:
+                        if self.env.has_clear_shoot(base_pos, FIREACTION.UP,
+                                                    ag_pos):
+                            agents_to_moves[ag] = step
+                    elif base_pos[0] == ag_pos[0] and base_pos[1] < ag_pos[1]:
+                        if self.env.has_clear_shoot(base_pos, FIREACTION.DOWN,
+                                                    ag_pos):
+                            agents_to_moves[ag] = step
+                    elif base_pos[1] == ag_pos[1] and base_pos[0] < ag_pos[0]:
+                        if self.env.has_clear_shoot(base_pos, FIREACTION.RIGHT,
+                                                    ag_pos):
+                            agents_to_moves[ag] = step
+                    elif base_pos[1] == ag_pos[1] and base_pos[0] > ag_pos[0]:
+                        if self.env.has_clear_shoot(base_pos, FIREACTION.LEFT,
+                                                    ag_pos):
+                            agents_to_moves[ag] = step
+                    else:
+                        pass
+        # not reacheable in max_steps
+        for ag in agents_next_position_copy:
             if ag not in agents_to_moves:
                 agents_to_moves[ag] = 9999
         return agents_to_moves
@@ -184,7 +196,7 @@ class RewardMaxStrategy(Stratey):
 
         # check if kill other player or enemies
         if isinstance(player_action, FIREACTION):
-            for agent, pos in agents_next_position:
+            for agent, pos in agents_next_position.items():
                 if self.env.has_clear_shoot(player_next_position,
                                             player_action, pos):
                     if isinstance(agent, Player):
@@ -219,8 +231,8 @@ class RewardMaxStrategy(Stratey):
             player_next_position, agents_next_position)
         reward += sum(
             map(
-                lambda ag, m: 1.0 / m * 40.0,
-                filter(lambda ag, m: isinstance(ag, Enemy),
+                lambda i: 1.0 / (i[1] + 1) * 40.0,
+                filter(lambda i: isinstance(i[0], Enemy),
                        agents_clear_shot_moves.items())))
         # ===========================================================================
         # 1. board exploration reward: number of unknown space explored

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 from flask import Flask, request, jsonify
-from ai import RandomStrategy
-from env import RecordEnvironement
+from ai import RandomStrategy, RewardMaxStrategy
+from env import RecurrentEnvironment, RecordEnvironement
 
 USER = "slong"
 EMAIL = "slong@veepee.com"
@@ -11,13 +11,15 @@ TAG = "MaxReward"
 
 server = Flask("AiServer-{tag}".format(tag=TAG))
 
-env = RecordEnvironement()
-strategy = RandomStrategy(env)
+#  env = RecordEnvironement()
+#  strategy = RandomStrategy(env)
 
+env = RecurrentEnvironment()
+strategy = RewardMaxStrategy(env)
 
 @server.route("/name", methods=["POST"])
 def get_username():
-    return jsonify(username=USER, email=EMAIL)
+    return jsonify(name=USER, email=EMAIL)
 
 
 @server.route("/move", methods=["POST"])
