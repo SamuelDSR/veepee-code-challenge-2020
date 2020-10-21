@@ -56,11 +56,11 @@ class FIREACTION(Enum):
     def __getitem__(self, idx):
         return self.value[idx]
 
-    def move(self, pos):
+    def move(self, x, y):
         """
         Fire action doesn't change agent position
         """
-        return pos
+        return (x, y)
 
     def is_valid(self, actor_pos, target_pos):
         op1, op2 = self.value[0], self.value[1]

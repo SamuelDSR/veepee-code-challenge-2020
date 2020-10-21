@@ -184,7 +184,7 @@ class RewardMaxStrategy(Stratey):
                 agents_next_position[agent] = action.move(agent.x, agent.y)
             else:
                 agents_next_position[agent] = (agent.x, agent.y)
-        player_next_position = action.move(player.x, player.y)
+        player_next_position = player_action.move(player.x, player.y)
 
         # check if player move leads to death of player
         # i.e., overlap with other players
@@ -194,8 +194,8 @@ class RewardMaxStrategy(Stratey):
                 collision += 1
         if collision > 0:
             logger.info("Move lead to death: {} times".format(collision))
-            logger.info("Reward: {}".format(-100))
-            reward -= 100
+            logger.info("Reward: {}".format(-1000))
+            reward -= 1000
 
         # ===========================================================================
         # then process players shoot
@@ -221,7 +221,7 @@ class RewardMaxStrategy(Stratey):
                         killed_others += 1
                     else:
                         killed_enemies += 1
-        delta = (killed_others) * 150 + killed_enemies * 100
+        delta = (killed_others) * 1500 + killed_enemies * 1000
         logger.info("Kill other players:{}, enemies: {} by shooting".format(
             killed_others, killed_enemies))
         logger.info("Reward: {}".format(delta))
@@ -243,7 +243,7 @@ class RewardMaxStrategy(Stratey):
                     kill_times += 1
                 else:
                     dead_times += 1
-        delta = int(dead_times > 0) * (-100) + kill_times * 100
+        delta = int(dead_times > 0) * (-1500) + kill_times * 1000
         reward += delta
         logger.info("Killed by enemies: {}, kill enemies by moving: {}".format(
             dead_times, kill_times))
@@ -260,7 +260,7 @@ class RewardMaxStrategy(Stratey):
         logger.info("Clear shot moves: {}".format(agents_clear_shot_moves))
         delta = sum(
             map(
-                lambda i: 1.0 / (i[1] + 1) * 40.0,
+                lambda i: 1.0 / (i[1] + 1) * 200.0,
                 filter(lambda i: isinstance(i[0], Enemy),
                        agents_clear_shot_moves.items())))
         logger.info("Clear shot reward: {}".format(delta))
