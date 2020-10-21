@@ -60,7 +60,7 @@ class RecurrentEnvironment(Environment):
     other_players = attr.ib(default=[], init=False)
     enemies = attr.ib(default=[], init=False)
 
-    def print_board(self):
+    def print_game(self):
         def _print_cell(c):
             if c == BoardState.FREE:
                 return "_"
@@ -69,9 +69,15 @@ class RecurrentEnvironment(Environment):
             else:
                 return "X"
         rows = [
-            "  ".join(map(lambda c: _print_cell(c), r))
+            list(map(lambda c: _print_cell(c), r))
             for r in self.board
         ]
+        for p in self.other_players:
+            rows[p.y][p.x] = "P"
+        for e in self.enemies:
+            rows[e.y][e.x] = "E"
+        rows[self.player.y][self.player.x] = "M"
+        rows = ["  ".join(r) for r in rows]
         bb = "\n".join(rows)
         print(bb)
 
@@ -105,6 +111,7 @@ class RecurrentEnvironment(Environment):
         self.update_other_players(state)
         self.update_enemies(state)
         self.update_player(state)
+        self.print_game()
 
     def update_other_players(self, state):
         players = state["players"]
@@ -154,8 +161,6 @@ class RecurrentEnvironment(Environment):
         # update walls
         for w in wall:
             self.board[w["y"]][w["x"]] = BoardState.WALL
-
-        self.print_board()
 
 
     def inside_visible(self, x, y):

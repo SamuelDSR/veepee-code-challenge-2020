@@ -1,11 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from collections import deque
+from copy import copy
 from itertools import product
 from random import choice
-from copy import copy
+import sys
+
+from loguru import logger
 
 from common import FIREACTION, MOVEACTION, Enemy, Player
+
+logger.remove()
+logger.add("run.log",
+           format="{time}:{level}:{line}:{function}:{message}",
+           level="INFO")
+#  logger.add(sys.stderr,
+           #  format="{time}:{level}:{line}:{function}:{message}",
+           #  level="INFO")
 
 
 class Stratey:
@@ -53,16 +64,18 @@ class RewardMaxStrategy(Stratey):
             expected_rewards.append(tot_reward /
                                     tot_count if tot_count > 0 else 0)
         # chose the action that maximize the expected reward
-        import ipdb; ipdb.set_trace()
+        logger.info("Rewards of each action: {}".format(list(zip(player_next_actions, expected_rewards))))
         max_reward = max(expected_rewards)
         max_actions = [
             a for i, a in enumerate(player_next_actions)
             if expected_rewards[i] == max_reward
         ]
         if len(max_actions) == 1:
-            return str(max_actions[0])
+            best = str(max_actions[0])
         else:
-            return str(choice(max_actions))
+            best = str(choice(max_actions))
+        logger.info("Best action: {}".format(best))
+        return best
 
     def next_actions_of_others(self):
         """
@@ -159,6 +172,9 @@ class RewardMaxStrategy(Stratey):
         player = self.env.player
         agents_next_position = {}
         player_next_position = None
+        logger.info("===============step reward=================")
+        logger.info("Player action: {}".format(player_action))
+        logger.info("Agents action: {}".format(agent_to_actions))
 
         # ===========================================================================
         # first process player moves
@@ -177,6 +193,8 @@ class RewardMaxStrategy(Stratey):
             if isinstance(p, Player) and pos == player_next_position:
                 collision += 1
         if collision > 0:
+            logger.info("Move lead to death: {} times".format(collision))
+            logger.info("Reward: {}".format(-100))
             reward -= 100
 
         # ===========================================================================
@@ -203,7 +221,11 @@ class RewardMaxStrategy(Stratey):
                         killed_others += 1
                     else:
                         killed_enemies += 1
-        reward += (killed_others) * 150 + killed_enemies * 100
+        delta = (killed_others) * 150 + killed_enemies * 100
+        logger.info("Kill other players:{}, enemies: {} by shooting".format(
+            killed_others, killed_enemies))
+        logger.info("Reward: {}".format(delta))
+        reward += delta
 
         # ===========================================================================
         # then process enemy move
@@ -221,7 +243,11 @@ class RewardMaxStrategy(Stratey):
                     kill_times += 1
                 else:
                     dead_times += 1
-        reward += int(dead_times > 0) * (-100) + kill_times * 100
+        delta = int(dead_times > 0) * (-100) + kill_times * 100
+        reward += delta
+        logger.info("Killed by enemies: {}, kill enemies by moving: {}".format(
+            dead_times, kill_times))
+        logger.info("Reward: {}".format(delta))
 
         # ===========================================================================
         # enemy approaching reward (sometimes player chose not to move and
@@ -229,11 +255,17 @@ class RewardMaxStrategy(Stratey):
         # ===========================================================================
         agents_clear_shot_moves = self.clear_shot_moves(
             player_next_position, agents_next_position)
-        reward += sum(
+        logger.info("player next pos: {}, agents next pos: {}".format(
+            player_next_position, agents_next_position))
+        logger.info("Clear shot moves: {}".format(agents_clear_shot_moves))
+        delta = sum(
             map(
                 lambda i: 1.0 / (i[1] + 1) * 40.0,
                 filter(lambda i: isinstance(i[0], Enemy),
                        agents_clear_shot_moves.items())))
+        logger.info("Clear shot reward: {}".format(delta))
+        reward += delta
+
         # ===========================================================================
         # 1. board exploration reward: number of unknown space explored
         # 2. don't repeat the path that you already did
@@ -242,6 +274,8 @@ class RewardMaxStrategy(Stratey):
         count = self.env.added_exploration_area(player_next_position[0],
                                                 player_next_position[1])
         reward += count * 2
+        logger.info("New exploration area reward: {}".format(count * 2))
+
         # in some case, moves in all directions could lead to 0 newly space explored
         # so what should do?
         # approach: look ahead n step
@@ -255,6 +289,7 @@ class RewardMaxStrategy(Stratey):
                     break
                 look_ahead_count += self.env.added_exploration_area(fx, fy)
         reward += look_ahead_count
+        logger.info("Look ahead reward: {}".format(look_ahead_count))
 
         history_look_ahead = 10
         repeat = 0
@@ -266,4 +301,5 @@ class RewardMaxStrategy(Stratey):
                 repeat = i
                 break
         reward -= (history_look_ahead - repeat)
+        logger.info("Repeat reward: {}".format(repeat - history_look_ahead))
         return reward
