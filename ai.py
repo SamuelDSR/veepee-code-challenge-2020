@@ -53,8 +53,8 @@ class RewardMaxStrategy(Stratey):
         combinations *= len(player_next_actions)
         logger.info("Number of combinations: {}".format(combinations))
 
-        # for each action of player, we calculate the expected reward
-        expected_rewards = []
+        # for each action of player, we calculate the expected combat reward
+        expected_combat_rewards = []
         for p_action in player_next_actions:
             # get all combinations of possible actions of other agents
             # assume that the equi prob of each action
@@ -67,12 +67,23 @@ class RewardMaxStrategy(Stratey):
             for comb in product(*all_combs):
                 tot_count += 1
                 agent_to_one_action = dict(comb)
-                tot_reward += self.step_reward(p_action, agent_to_one_action)
-            expected_rewards.append(tot_reward /
-                                    tot_count if tot_count > 0 else 0)
+                tot_reward += self.combat_reward(p_action, agent_to_one_action)
+            expected_combat_rewards.append(tot_reward/tot_count if tot_count > 0 else 0)
+
+        # for each position, we calculate the exploration gain
+        expected_exploration_rewards = []
+        for p_action in player_next_actions:
+            new_pos = p_action.move(self.env.player.x, self.env.player.y)
+            reward = self.visible_area_reward(new_pos)
+            reward += self.exploration_reward(new_pos)
+            expected_exploration_rewards.append(reward)
+
+        # sum of the two kinds of rewards
+        expected_rewards = [x+y for x, y in zip(expected_combat_rewards, expected_exploration_rewards)]
+
         # chose the action that maximize the expected reward
         logger.info("Rewards of each action: {}".format(
-            list(zip(player_next_actions, expected_rewards))))
+            list(zip(player_next_actions, expected_combat_rewards))))
         max_reward = max(expected_rewards)
         max_actions = [
             a for i, a in enumerate(player_next_actions)
@@ -163,7 +174,7 @@ class RewardMaxStrategy(Stratey):
                 agents_to_moves[ag] = 9999
         return agents_to_moves
 
-    def step_reward(self, player_action, agent_to_actions):
+    def combat_reward(self, player_action, agent_to_actions):
         """After knowing the next action of every agents in visible area,
         return the reward of the action
 
@@ -269,9 +280,6 @@ class RewardMaxStrategy(Stratey):
                        agents_clear_shot_moves.items())))
         logger.info("Clear shot reward: {}".format(delta))
         reward += delta
-
-        reward += self.visible_area_reward(player_next_position)
-        reward += self.exploration_reward(player_next_position)
         return reward
 
     def visible_area_reward(self, position):
