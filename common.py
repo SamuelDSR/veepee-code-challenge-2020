@@ -64,7 +64,7 @@ class FIREACTION(Enum):
     def can_shoot(self, actor_pos, target_pos):
         op1, op2 = self.value[0], self.value[1]
         if (op1(actor_pos[0], target_pos[0])
-                and op2(actor_pos[0], actor_pos[1])):
+                and op2(actor_pos[1], target_pos[1])):
             return True
         return False
 
