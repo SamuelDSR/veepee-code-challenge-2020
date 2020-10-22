@@ -34,8 +34,7 @@ class MOVEACTION(Enum):
 
     def move(self, x, y):
         if self.name != "INVALID":
-            return (x + self.value[0],
-                    y + self.value[1])
+            return (x + self.value[0], y + self.value[1])
         else:
             return (x, y)
 
@@ -62,10 +61,10 @@ class FIREACTION(Enum):
         """
         return (x, y)
 
-    def is_valid(self, actor_pos, target_pos):
+    def can_shoot(self, actor_pos, target_pos):
         op1, op2 = self.value[0], self.value[1]
-        if (op1(actor_pos[0], target_pos[0]) and
-                op2(actor_pos[0], actor_pos[1])):
+        if (op1(actor_pos[0], target_pos[0])
+                and op2(actor_pos[0], actor_pos[1])):
             return True
         return False
 
@@ -79,36 +78,33 @@ class Agent:
 
     def can_move_to(self, nx, ny, env):
         """
-        Return if next postion of the agent could be (nx, ny)
+        Return if next postion of the agent could be (nx, ny) by chosing some action
         """
         return env.valid_pos(nx, ny)
 
     def next_positions(self, env):
         """Return all possible positions in next move
         """
-        return [(self.x + a[0], self.y + a[1]) for a in self.next_actions(env)
-                if isinstance(a, MOVEACTION)]
+        return [a.move(self.x, self.y) for a in self.next_actions(env)]
 
     def next_actions(self, env):
         """
-        All possible actions that can be taken by agent in next move
-        1. invalid actions will not be taken account into
-        2. Equal prob of each action
+        All possible actions that can be taken by agent in next move,
+        invalid actions will not be taken account into
 
         #TODO: build a behavoir proba distribution
         according to behavoir of agent
 
         Returns:
-            actions, proba: next possible actions and the proba
+            actions: next possible actions and the proba
         """
         actions = []
+        # all agents can move
         for a in list(MOVEACTION):
-            if env.valid_pos(self.x + a.value[0], self.y + a.value[1]):
+            nx, ny = a.move(self.x, self.y)
+            if env.valid_pos(nx, ny):
                 actions.append(a)
-        if len(actions) > 0:
-            return actions, [1 / len(actions)] * len(actions)
-        else:
-            return actions, []
+        return actions
 
 
 @attr.s(eq=False)
@@ -118,23 +114,14 @@ class Player(Agent):
     positions = attr.ib(default=[])
     actions = attr.ib(default=[])
     shoot_cd = attr.ib(default=0)
-
-    def next_positions(self, env):
-        positions = super().next_positions(env)
-        # if a player can shoot, it can be immobile
-        if self.shoot_cd == 0:
-            positions.append((self.x, self.y))
-        return positions
+    can_shoot = attr.ib(default=True)
 
     def next_actions(self, env):
-        actions, _ = super().next_actions(env)
-        if self.shoot_cd == 0:
+        actions = super().next_actions(env)
+        if self.can_shoot:
             for a in list(FIREACTION):
                 actions.append(a)
-        if len(actions) > 0:
-            return actions, [1 / len(actions)] * len(actions)
-        else:
-            return actions, []
+        return actions
 
 
 @attr.s(eq=False)

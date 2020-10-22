@@ -1,21 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from pathlib import Path
 import json
+from pathlib import Path
 
 import attr
 
-from common import FIREACTION, BoardState, Player, Enemy
+from common import FIREACTION, BoardState, Enemy, Player
 
 
-class Environment:
-    def update_from_state(self, state):
+class Environment():
+    def update(self, state):
         pass
 
-    def update_from_action(self, action):
-        pass
-
-    def save(self):
+    def update_after_player_action(self, action):
         pass
 
 
@@ -24,24 +21,24 @@ class RecordEnvironement(Environment):
     """
     A environement that just records every response returned by server
     """
-    saved_game = attr.ib(default={}, init=False)
+    game_frame = attr.ib(default={}, init=False)
     step = attr.ib(default=0, init=False)
 
-    def update_from_state(self, state):
-        self.saved_game["state"] = state
-        self.saved_game["step"] = self.step
+    def update(self, state):
+        self.game_frame["state"] = state
+        self.game_frame["step"] = self.step
         self.step += 1
 
-    def update_from_action(self, player_action):
-        self.saved_game["player_action"] = str(player_action)
+    def update_after_player_action(self, player_action):
+        self.game_frame["player_action"] = str(player_action)
 
-    def save(self):
-        save_path = Path("state-{}.json".format(self.step))
-        json.dump(self.saved_game, save_path.open("w"))
+    def save_frame(self, prefix):
+        save_path = Path(prefix) / "state-{}.json".format(self.step)
+        json.dump(self.game_frame, save_path.open("w"))
 
 
 @attr.s
-class RecurrentEnvironment(Environment):
+class RecurrentEnvironment(RecordEnvironement):
 
     # board, NOTE: board[ny][nx], ny before nx in indexing
     board = attr.ib(default=None, init=False)
@@ -60,7 +57,7 @@ class RecurrentEnvironment(Environment):
     other_players = attr.ib(default=[], init=False)
     enemies = attr.ib(default=[], init=False)
 
-    def print_game(self):
+    def print_game_board(self):
         def _print_cell(c):
             if c == BoardState.FREE:
                 return "_"
@@ -68,10 +65,8 @@ class RecurrentEnvironment(Environment):
                 return "#"
             else:
                 return "X"
-        rows = [
-            list(map(lambda c: _print_cell(c), r))
-            for r in self.board
-        ]
+
+        rows = [list(map(lambda c: _print_cell(c), r)) for r in self.board]
         for p in self.other_players:
             rows[p.y][p.x] = "P"
         for e in self.enemies:
@@ -106,27 +101,13 @@ class RecurrentEnvironment(Environment):
                     count += 1
         return count
 
-    def update_from_state(self, state):
+    def update(self, state):
+        super().update(state)
         self.update_board(state)
         self.update_other_players(state)
         self.update_enemies(state)
         self.update_player(state)
-        self.print_game()
-
-    def update_other_players(self, state):
-        players = state["players"]
-        self.other_players = [
-            Player(x=p['x'], y=p['y'])
-            for p in players
-        ]
-
-    def update_enemies(self, state):
-        enemies = state["enemies"]
-        self.enemies = [
-            Enemy(x=e['x'], y=e['y'], is_neutral=e["neutral"])
-            for e in enemies
-        ]
-
+        self.print_game_board()
 
     def update_board(self, state):
         """For a board,
@@ -142,10 +123,8 @@ class RecurrentEnvironment(Environment):
 
         # init board with all UNKNOWN
         if self.board is None:
-            self.board = [
-                [BoardState.UNKNOWN for i in range(size["width"])]
-                for j in range(size["height"])
-            ]
+            self.board = [[BoardState.UNKNOWN for i in range(size["width"])]
+                          for j in range(size["height"])]
 
         # update visible area
         self.varea_x1 = area["x1"]
@@ -158,10 +137,19 @@ class RecurrentEnvironment(Environment):
             for y in range(area["y1"], area["y2"] + 1):
                 self.board[y][x] = BoardState.FREE
 
-        # update walls
+        # update board if there are walls in visible area
         for w in wall:
             self.board[w["y"]][w["x"]] = BoardState.WALL
 
+    def update_other_players(self, state):
+        players = state["players"]
+        self.other_players = [Player(x=p['x'], y=p['y']) for p in players]
+
+    def update_enemies(self, state):
+        enemies = state["enemies"]
+        self.enemies = [
+            Enemy(x=e['x'], y=e['y'], is_neutral=e["neutral"]) for e in enemies
+        ]
 
     def inside_visible(self, x, y):
         if self.varea_x1 <= x <= self.varea_x2 and self.varea_y1 <= y <= self.varea_y2:
@@ -175,13 +163,13 @@ class RecurrentEnvironment(Environment):
             return False
         return True
 
-    def has_clear_shoot(self, agent_pos, action, target_pos):
+    def can_shoot(self, agent_pos, action, target_pos):
         if not isinstance(action, FIREACTION):
             return False
-        # first check if this shot is valid
-        if not action.is_valid(agent_pos, target_pos):
+        # first check if this shot is valid, e.g., two are in the same line
+        if not action.can_shoot(agent_pos, target_pos):
             return False
-        # then check if any walls between agent_pos and target_pos in shooting direction
+        # then check if any walls between agent_pos and target_pos
         # because shoot cannot go through walls
         ax, ay = agent_pos[0], agent_pos[1]
         tx, ty = target_pos[0], target_pos[1]
@@ -209,8 +197,19 @@ class RecurrentEnvironment(Environment):
         player = state["player"]
         self.player.x = player["position"]["x"]
         self.player.y = player["position"]["y"]
+        self.player.can_shoot = player["fire"]
         self.player.positions.append((self.player.x, self.player.y))
         if self.short_range_x is None:
-            self.short_range_x = abs(self.varea_x1 - self.player.x)
+            self.short_range_x = max([
+                abs(self.varea_x1 - self.player.x),
+                abs(self.varea_x2 - self.player.x)
+            ])
         if self.short_range_y is None:
-            self.short_range_y = abs(self.varea_y1 - self.player.y)
+            self.short_range_y = max([
+                abs(self.varea_y1 - self.player.y),
+                abs(self.varea_y2 - self.player.y)
+            ])
+
+    def update_after_player_action(self, action):
+        super().update_after_player_action(action)
+        self.player.actions.append(action)
