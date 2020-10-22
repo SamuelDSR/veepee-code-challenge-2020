@@ -68,7 +68,8 @@ class RewardMaxStrategy(Stratey):
                 tot_count += 1
                 agent_to_one_action = dict(comb)
                 tot_reward += self.combat_reward(p_action, agent_to_one_action)
-            expected_combat_rewards.append(tot_reward/tot_count if tot_count > 0 else 0)
+            expected_combat_rewards.append(tot_reward /
+                                           tot_count if tot_count > 0 else 0)
 
         # for each position, we calculate the exploration gain
         expected_exploration_rewards = []
@@ -79,7 +80,10 @@ class RewardMaxStrategy(Stratey):
             expected_exploration_rewards.append(reward)
 
         # sum of the two kinds of rewards
-        expected_rewards = [x+y for x, y in zip(expected_combat_rewards, expected_exploration_rewards)]
+        expected_rewards = [
+            x + y for x, y in zip(expected_combat_rewards,
+                                  expected_exploration_rewards)
+        ]
 
         # chose the action that maximize the expected reward
         logger.info("Rewards of each action: {}".format(
@@ -151,20 +155,19 @@ class RewardMaxStrategy(Stratey):
             for ag, ag_pos in agents_next_position_copy.items():
                 if ag not in agents_to_moves:
                     if base_pos[0] == ag_pos[0] and base_pos[1] > ag_pos[1]:
-                        if self.env.can_shoot(base_pos, FIREACTION.UP,
-                                                    ag_pos):
+                        if self.env.can_shoot(base_pos, FIREACTION.UP, ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[0] == ag_pos[0] and base_pos[1] < ag_pos[1]:
                         if self.env.can_shoot(base_pos, FIREACTION.DOWN,
-                                                    ag_pos):
+                                              ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[1] == ag_pos[1] and base_pos[0] < ag_pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.RIGHT,
-                                                    ag_pos):
+                                              ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[1] == ag_pos[1] and base_pos[0] > ag_pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.LEFT,
-                                                    ag_pos):
+                                              ag_pos):
                             agents_to_moves[ag] = step
                     else:
                         pass
@@ -190,7 +193,7 @@ class RewardMaxStrategy(Stratey):
         player = self.env.player
         agents_next_position = {}
         player_next_position = None
-        logger.info("===============step reward=================")
+        logger.info("===============combat reward=================")
         logger.info("Player action: {}".format(player_action))
         logger.info("Agents action: {}".format(agent_to_actions))
 
@@ -211,8 +214,9 @@ class RewardMaxStrategy(Stratey):
             if isinstance(p, Player) and pos == player_next_position:
                 collision += 1
         if collision > 0:
-            logger.info("Move lead to death: {} times, reward: {}".format(collision, -1000))
-            reward -= 1000
+            logger.info("Move lead to death: {} times, reward: {}".format(
+                collision, -1500))
+            reward -= 1500
 
         # ===========================================================================
         # then process players shoot
@@ -226,21 +230,25 @@ class RewardMaxStrategy(Stratey):
                 continue
             # check if player is killed by other players
             if self.env.can_shoot(agents_next_position[agent], action,
-                                        player_next_position):
+                                  player_next_position):
                 killed += 1
 
         # check if kill other player or enemies
         if isinstance(player_action, FIREACTION):
             for agent, pos in agents_next_position.items():
-                if self.env.can_shoot(player_next_position,
-                                            player_action, pos):
+                if self.env.can_shoot(player_next_position, player_action,
+                                      pos):
                     if isinstance(agent, Player):
                         killed_others += 1
                     else:
                         killed_enemies += 1
-        delta = (killed_others) * 1500 + killed_enemies * 1000
-        logger.info("Kill other players:{}, enemies: {} by shooting, reward: {}".format(
-            killed_others, killed_enemies, delta))
+        # reward by shoot should be penalized against touching due to shoot cd
+        delta = killed_others * 500 + killed_enemies * 500
+        if killed > 0:
+            delta -= 500
+        logger.info(
+            "Killed by others: {}, Kill other players:{}, enemies: {} by shooting, reward: {}".
+            format(killed, killed_others, killed_enemies, delta))
         reward += delta
 
         # ===========================================================================
@@ -261,8 +269,9 @@ class RewardMaxStrategy(Stratey):
                     dead_times += 1
         delta = int(dead_times > 0) * (-1500) + kill_times * 1000
         reward += delta
-        logger.info("Killed by enemies: {}, kill enemies by moving: {}, reward: {}".format(
-            dead_times, kill_times, delta))
+        logger.info(
+            "Killed by enemies: {}, kill enemies by moving: {}, reward: {}".
+            format(dead_times, kill_times, delta))
 
         # ===========================================================================
         # enemy approaching reward (sometimes player chose not to move and
