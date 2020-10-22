@@ -4,19 +4,18 @@ from collections import deque
 from copy import copy
 from itertools import product
 from random import choice
-import sys
 
 from loguru import logger
 
-from common import FIREACTION, MOVEACTION, Enemy, Player
+from common import FIREACTION, MOVEACTION, Enemy, Player, BoardState
 
 logger.remove()
 logger.add("run.log",
            format="{time}:{level}:{line}:{function}:{message}",
            level="INFO")
 #  logger.add(sys.stderr,
-           #  format="{time}:{level}:{line}:{function}:{message}",
-           #  level="INFO")
+#  format="{time}:{level}:{line}:{function}:{message}",
+#  level="INFO")
 
 
 class Stratey:
@@ -39,13 +38,21 @@ class RandomStrategy(Stratey):
 
 
 class RewardMaxStrategy(Stratey):
+    @logger.catch
     def best_action(self):
         """
         chose action that maximize actions if there is action with pos rewards
         TODO epsilon-greedy approach
         """
         agent_to_actions = self.next_actions_of_others()
-        player_next_actions, _ = self.env.player.next_actions(self.env)
+        player_next_actions = self.env.player.next_actions(self.env)
+
+        combinations = 1
+        for p, acts in agent_to_actions.items():
+            combinations *= len(acts)
+        combinations *= len(player_next_actions)
+        logger.info("Number of combinations: {}".format(combinations))
+
         # for each action of player, we calculate the expected reward
         expected_rewards = []
         for p_action in player_next_actions:
@@ -64,7 +71,8 @@ class RewardMaxStrategy(Stratey):
             expected_rewards.append(tot_reward /
                                     tot_count if tot_count > 0 else 0)
         # chose the action that maximize the expected reward
-        logger.info("Rewards of each action: {}".format(list(zip(player_next_actions, expected_rewards))))
+        logger.info("Rewards of each action: {}".format(
+            list(zip(player_next_actions, expected_rewards))))
         max_reward = max(expected_rewards)
         max_actions = [
             a for i, a in enumerate(player_next_actions)
@@ -86,9 +94,9 @@ class RewardMaxStrategy(Stratey):
         """
         agent_to_actions = {}
         for player in self.env.other_players:
-            agent_to_actions[player] = player.next_actions(self.env)[0]
+            agent_to_actions[player] = player.next_actions(self.env)
         for enemy in self.env.enemies:
-            agent_to_actions[enemy] = enemy.next_actions(self.env)[0]
+            agent_to_actions[enemy] = enemy.next_actions(self.env)
         return agent_to_actions
 
     def clear_shot_moves(self,
@@ -132,19 +140,19 @@ class RewardMaxStrategy(Stratey):
             for ag, ag_pos in agents_next_position_copy.items():
                 if ag not in agents_to_moves:
                     if base_pos[0] == ag_pos[0] and base_pos[1] > ag_pos[1]:
-                        if self.env.has_clear_shoot(base_pos, FIREACTION.UP,
+                        if self.env.can_shoot(base_pos, FIREACTION.UP,
                                                     ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[0] == ag_pos[0] and base_pos[1] < ag_pos[1]:
-                        if self.env.has_clear_shoot(base_pos, FIREACTION.DOWN,
+                        if self.env.can_shoot(base_pos, FIREACTION.DOWN,
                                                     ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[1] == ag_pos[1] and base_pos[0] < ag_pos[0]:
-                        if self.env.has_clear_shoot(base_pos, FIREACTION.RIGHT,
+                        if self.env.can_shoot(base_pos, FIREACTION.RIGHT,
                                                     ag_pos):
                             agents_to_moves[ag] = step
                     elif base_pos[1] == ag_pos[1] and base_pos[0] > ag_pos[0]:
-                        if self.env.has_clear_shoot(base_pos, FIREACTION.LEFT,
+                        if self.env.can_shoot(base_pos, FIREACTION.LEFT,
                                                     ag_pos):
                             agents_to_moves[ag] = step
                     else:
@@ -157,7 +165,7 @@ class RewardMaxStrategy(Stratey):
 
     def step_reward(self, player_action, agent_to_actions):
         """After knowing the next action of every agents in visible area,
-        try getting the rewards
+        return the reward of the action
 
         Args:
             player_action: action taken by player
@@ -167,7 +175,6 @@ class RewardMaxStrategy(Stratey):
 
         # TODO take account into the rewards of other players, try to minimize the reward of others
         """
-
         reward = 0
         player = self.env.player
         agents_next_position = {}
@@ -193,8 +200,7 @@ class RewardMaxStrategy(Stratey):
             if isinstance(p, Player) and pos == player_next_position:
                 collision += 1
         if collision > 0:
-            logger.info("Move lead to death: {} times".format(collision))
-            logger.info("Reward: {}".format(-1000))
+            logger.info("Move lead to death: {} times, reward: {}".format(collision, -1000))
             reward -= 1000
 
         # ===========================================================================
@@ -208,23 +214,22 @@ class RewardMaxStrategy(Stratey):
             if not isinstance(action, FIREACTION):
                 continue
             # check if player is killed by other players
-            if self.env.has_clear_shoot(agents_next_position[agent], action,
+            if self.env.can_shoot(agents_next_position[agent], action,
                                         player_next_position):
                 killed += 1
 
         # check if kill other player or enemies
         if isinstance(player_action, FIREACTION):
             for agent, pos in agents_next_position.items():
-                if self.env.has_clear_shoot(player_next_position,
+                if self.env.can_shoot(player_next_position,
                                             player_action, pos):
                     if isinstance(agent, Player):
                         killed_others += 1
                     else:
                         killed_enemies += 1
         delta = (killed_others) * 1500 + killed_enemies * 1000
-        logger.info("Kill other players:{}, enemies: {} by shooting".format(
-            killed_others, killed_enemies))
-        logger.info("Reward: {}".format(delta))
+        logger.info("Kill other players:{}, enemies: {} by shooting, reward: {}".format(
+            killed_others, killed_enemies, delta))
         reward += delta
 
         # ===========================================================================
@@ -245,9 +250,8 @@ class RewardMaxStrategy(Stratey):
                     dead_times += 1
         delta = int(dead_times > 0) * (-1500) + kill_times * 1000
         reward += delta
-        logger.info("Killed by enemies: {}, kill enemies by moving: {}".format(
-            dead_times, kill_times))
-        logger.info("Reward: {}".format(delta))
+        logger.info("Killed by enemies: {}, kill enemies by moving: {}, reward: {}".format(
+            dead_times, kill_times, delta))
 
         # ===========================================================================
         # enemy approaching reward (sometimes player chose not to move and
@@ -266,40 +270,75 @@ class RewardMaxStrategy(Stratey):
         logger.info("Clear shot reward: {}".format(delta))
         reward += delta
 
-        # ===========================================================================
-        # 1. board exploration reward: number of unknown space explored
-        # 2. don't repeat the path that you already did
-        # ===========================================================================
-        # newly explored area
-        count = self.env.added_exploration_area(player_next_position[0],
-                                                player_next_position[1])
-        reward += count * 2
-        logger.info("New exploration area reward: {}".format(count * 2))
-
-        # in some case, moves in all directions could lead to 0 newly space explored
-        # so what should do?
-        # approach: look ahead n step
-        look_ahead_step = 5
-        look_ahead_count = 0
-        fx, fy = player_next_position[0], player_next_position[1]
-        if isinstance(player_action, MOVEACTION):
-            for i in range(look_ahead_step):
-                fx, fy = player_action.move(fx, fy)
-                if not self.env.valid_pos(fx, fy):
-                    break
-                look_ahead_count += self.env.added_exploration_area(fx, fy)
-        reward += look_ahead_count
-        logger.info("Look ahead reward: {}".format(look_ahead_count))
-
-        history_look_ahead = 10
-        repeat = 0
-        # don't repeat the move that you just did in last steps
-        # this help us get rid of a dead loop
-        for i in range(1, min(history_look_ahead + 1,
-                              len(player.positions) + 1)):
-            if player_next_position == player.positions[-i]:
-                repeat = i
-                break
-        reward -= (history_look_ahead - repeat)
-        logger.info("Repeat reward: {}".format(repeat - history_look_ahead))
+        reward += self.visible_area_reward(player_next_position)
+        reward += self.exploration_reward(player_next_position)
         return reward
+
+    def visible_area_reward(self, position):
+        """number of added unknown space could be explored in this position
+        """
+        added_area = self.env.added_exploration_area(position[0], position[1])
+        reward = added_area * 5
+        logger.info("New exploration area: {}, reward: {}".format(
+            added_area, reward))
+        return reward
+
+    def exploration_reward(self, position):
+        """
+        From the base pos, do a breadth-first walk of the current board within max steps
+        Idea: the exploration reward for a position (x, y) is:
+            - the number of known positions it can visite with max_step steps
+            - the number of (unknown positions)*2 it can reach
+        """
+        seen_positions = set()
+        step = 0
+        positions_to_visit = deque([])
+        positions_to_visit.append((position, step))
+
+        steps_to_test = [4, 8]
+        max_step = max(steps_to_test)
+        exploration = {}
+        for s in steps_to_test:
+            exploration[s] = {"known": 0, "unknown": 0}
+        while len(positions_to_visit) > 0:
+            (x, y), current_step = positions_to_visit.popleft()
+            if (x, y) in seen_positions:
+                continue
+            seen_positions.add((x, y))
+
+            if self.env.board[y][x] == BoardState.FREE:
+                for s, stat in exploration.items():
+                    if current_step <= s:
+                        stat["known"] += 1
+            elif self.env.board[y][x] == BoardState.UNKNOWN:
+                for s, stat in exploration.items():
+                    if current_step <= s:
+                        stat["unknown"] += 1
+            else:
+                pass
+
+            # if reach max step or the current pos is unknown, don't continue
+            if current_step + 1 > max_step or self.env.board[y][
+                    x] == BoardState.UNKNOWN:
+                continue
+            # add next pos that are not already seen and invalid
+            for action in list(MOVEACTION):
+                nx, ny = action.move(x, y)
+                if (nx, ny) not in seen_positions and self.env.valid_pos(
+                        nx, ny):
+                    positions_to_visit.append(((nx, ny), current_step + 1))
+
+        logger.info("Exploration statistics: {}".format(exploration))
+        # calculate exploration reward
+        step_rewards = [
+            exploration[s]["known"] + exploration[s]["unknown"] * 2
+            for s in steps_to_test
+        ]
+        logger.info("Exploration reward for steps: {}".format(step_rewards))
+        exploration_reward, last_r = 0, 0
+        alpha = 0.8
+        for i, r in enumerate(step_rewards):
+            exploration_reward += (r - last_r) * alpha**i
+            last_r = r
+        logger.info("Final exploration reward: {}".format(exploration_reward))
+        return exploration_reward

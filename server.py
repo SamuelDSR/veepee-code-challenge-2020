@@ -15,7 +15,8 @@ server = Flask("AiServer-{tag}".format(tag=TAG))
 #  strategy = RandomStrategy(env)
 
 env = RecurrentEnvironment()
-strategy = RewardMaxStrategy(env)
+optim_strategy = RewardMaxStrategy(env)
+random_strategy = RandomStrategy(env)
 
 @server.route("/name", methods=["POST"])
 def get_username():
@@ -25,10 +26,13 @@ def get_username():
 @server.route("/move", methods=["POST"])
 def next_move():
     state = request.get_json()
-    env.update_from_state(state)
-    best_move = strategy.best_action()
-    env.update_from_action(best_move)
-    env.save()
+    env.update(state)
+    try:
+        best_move = optim_strategy.best_action()
+    except Exception:
+        best_move = random_strategy.best_action()
+    env.update_after_player_action(best_move)
+    env.save_frame(".")
     return jsonify(move=best_move)
 
 
