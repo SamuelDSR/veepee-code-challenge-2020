@@ -3,6 +3,7 @@
 
 from enum import Enum
 from operator import eq, gt, lt
+from collections import defaultdict
 
 import attr
 
@@ -83,28 +84,31 @@ class Agent:
         return env.valid_pos(nx, ny)
 
     def next_positions(self, env):
-        """Return all possible positions in next move
-        """
-        return [a.move(self.x, self.y) for a in self.next_actions(env)]
-
-    def next_actions(self, env):
-        """
-        All possible actions that can be taken by agent in next move,
-        invalid actions will not be taken account into
-
-        #TODO: build a behavoir proba distribution
-        according to behavoir of agent
+        """all possible positions in next move
+        Args:
+            env: game env
 
         Returns:
-            actions: next possible actions and the proba
+            positions: positions in next move
+            proba: probabilities of each positions
         """
-        actions = []
-        # all agents can move
-        for a in list(MOVEACTION):
-            nx, ny = a.move(self.x, self.y)
-            if env.valid_pos(nx, ny):
-                actions.append(a)
-        return actions
+        actions, act_proba = self.next_actions(env)
+        position_proba = defaultdict(float)
+        for a, prob in zip(actions, act_proba):
+            pos = a.move(self.x, self.y)
+            position_proba[pos] += prob
+        return list(position_proba.keys()), list(position_proba.values())
+
+    def next_actions(self, env):
+        """all possible actions
+        Args:
+            env: game env
+        Returns:
+            actions: actions that agent may take in next move
+            proba: probabilities of each positions
+        """
+        actions, proba = [], []
+        return actions, proba
 
 
 @attr.s(eq=False)
@@ -117,13 +121,39 @@ class Player(Agent):
     can_shoot = attr.ib(default=True)
 
     def next_actions(self, env):
-        actions = super().next_actions(env)
+        """
+        #TODO: build a behavoir proba distribution
+        according to behavoir of agent
+        """
+        actions = []
+        for a in list(MOVEACTION):
+            nx, ny = a.move(self.x, self.y)
+            if env.valid_pos(nx, ny):
+                actions.append(a)
         if self.can_shoot:
             for a in list(FIREACTION):
                 actions.append(a)
-        return actions
+        if len(actions) > 0:
+            proba = [1 / len(actions)] * len(actions)
+        else:
+            proba = []
+        return actions, proba
 
 
 @attr.s(eq=False)
 class Enemy(Agent):
     is_neutral = attr.ib(default=True)
+
+    def next_actions(self, env):
+        actions = []
+        for a in list(MOVEACTION):
+            # assume that all enemy must move
+            if a != MOVEACTION.INVALID:
+                nx, ny = a.move(self.x, self.y)
+                if env.valid_pos(nx, ny):
+                    actions.append(a)
+        if len(actions) > 0:
+            proba = [1 / len(actions)] * len(actions)
+        else:
+            proba = []
+        return actions, proba

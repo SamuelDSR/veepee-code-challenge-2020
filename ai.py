@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from collections import deque
-from copy import copy
-from itertools import product
 from random import choice
 
 from loguru import logger
 
-from common import FIREACTION, MOVEACTION, Enemy, Player, BoardState
+from common import FIREACTION, MOVEACTION, BoardState, Enemy, Player
 
 logger.remove()
 logger.add("run.log",
@@ -41,35 +39,28 @@ class RewardMaxStrategy(Stratey):
     @logger.catch
     def best_action(self):
         """
-        chose action that maximize actions if there is action with pos rewards
-        TODO epsilon-greedy approach
+        chose the action that maximize rewards
+        #TODO epsilon-greedy approach
         """
-        agent_to_actions = self.next_actions_of_others()
-        player_next_actions = self.env.player.next_actions(self.env)
-
-        combinations = 1
-        for p, acts in agent_to_actions.items():
-            combinations *= len(acts)
-        combinations *= len(player_next_actions)
-        logger.info("Number of combinations: {}".format(combinations))
+        current_player = self.env.player
+        player_next_actions, _ = current_player.next_actions(self.env)
+        agents_action_to_proba = self.next_actions_of_others()
+        agents_position_to_proba = self.next_positions_of_others()
 
         # for each action of player, we calculate the expected combat reward
-        expected_combat_rewards = []
+        expected_move_combat_rewards = []
+        expected_shoot_combat_rewards = []
+        expected_enemy_approach_rewards = []
         for p_action in player_next_actions:
-            # get all combinations of possible actions of other agents
-            # assume that the equi prob of each action
-            all_combs = [
-                product([ag], actions)
-                for ag, actions in agent_to_actions.items()
-            ]
-            tot_reward = 0
-            tot_count = 0
-            for comb in product(*all_combs):
-                tot_count += 1
-                agent_to_one_action = dict(comb)
-                tot_reward += self.combat_reward(p_action, agent_to_one_action)
-            expected_combat_rewards.append(tot_reward /
-                                           tot_count if tot_count > 0 else 0)
+            expected_move_combat_rewards.append(self.move_combat_reward(
+               p_action, agents_action_to_proba
+            ))
+            expected_shoot_combat_rewards.append(self.shoot_combat_reward(
+                p_action, agents_action_to_proba
+            ))
+            expected_enemy_approach_rewards.append(self.enemy_approaching_reward(
+                p_action, agents_position_to_proba
+            ))
 
         # for each position, we calculate the exploration gain
         expected_exploration_rewards = []
@@ -80,18 +71,21 @@ class RewardMaxStrategy(Stratey):
             expected_exploration_rewards.append(reward)
 
         # sum of the two kinds of rewards
-        expected_rewards = [
-            x + y for x, y in zip(expected_combat_rewards,
-                                  expected_exploration_rewards)
+        tot_expected_rewards = [
+            expected_move_combat_rewards[i] +
+            expected_shoot_combat_rewards[i] +
+            expected_enemy_approach_rewards[i] +
+            expected_exploration_rewards[i]
+            for i in range(len(player_next_actions))
         ]
 
         # chose the action that maximize the expected reward
         logger.info("Rewards of each action: {}".format(
-            list(zip(player_next_actions, expected_combat_rewards))))
-        max_reward = max(expected_rewards)
+            list(zip(player_next_actions, tot_expected_rewards))))
+        max_reward = max(tot_expected_rewards)
         max_actions = [
             a for i, a in enumerate(player_next_actions)
-            if expected_rewards[i] == max_reward
+            if tot_expected_rewards[i] == max_reward
         ]
         if len(max_actions) == 1:
             best = str(max_actions[0])
@@ -124,30 +118,35 @@ class RewardMaxStrategy(Stratey):
             agent_to_actions[enemy] = enemy.next_actions(self.env)
         return agent_to_actions
 
+    def next_positions_of_others(self):
+        """
+        All possible positions of other agents (player or enemies) in visible area
+        Returns:
+            agent_to_positions: dict(agent-> ([positions], [probs])
+        """
+        agent_to_positions = {}
+        for player in self.env.other_players:
+            agent_to_positions[player] = player.next_positions(self.env)
+        for enemy in self.env.enemies:
+            agent_to_positions[enemy] = enemy.next_positions(self.env)
+        return agent_to_positions
+
     def clear_shot_moves(self,
                          player_position,
-                         agents_next_position,
+                         target_positions,
                          max_step=10):
         """
-        Get the minimum moves between player and all other agents (other players and
-        enemies.
+        Get the minimum moves between player and all other target positions.
         Here we use a simple bfs search as we can assume that the visible area is quite small
         """
-        agents_to_moves = {}
+        positions_to_moves = {}
         queue = deque([])
         queue.append((player_position, 0))
         seen_positions = set()
 
-        # patch
-        # remove agents pos that already collides with player position when calculate shot moves
-        agents_next_position_copy = copy(agents_next_position)
-        for ag, ag_pos in agents_next_position.items():
-            if ag_pos == player_position:
-                del agents_next_position_copy[ag]
-
         # if there are still agents that are not determined
-        while len(queue) > 0 and len(agents_to_moves) < len(
-                agents_next_position_copy):
+        while len(queue) > 0 and len(positions_to_moves) < len(
+                target_positions):
             base_pos, step = queue.popleft()
             if step > max_step:
                 break
@@ -161,144 +160,143 @@ class RewardMaxStrategy(Stratey):
                         new_pos[1]) and new_pos not in seen_positions:
                     queue.append((new_pos, step + 1))
 
-            # check if this new pos has a clear shot of any enemies or players
-            for ag, ag_pos in agents_next_position_copy.items():
-                if ag not in agents_to_moves:
-                    if base_pos[0] == ag_pos[0] and base_pos[1] > ag_pos[1]:
-                        if self.env.can_shoot(base_pos, FIREACTION.UP, ag_pos):
-                            agents_to_moves[ag] = step
-                    elif base_pos[0] == ag_pos[0] and base_pos[1] < ag_pos[1]:
+            # check if this new pos has a clear shot of target pos
+            for pos in target_positions:
+                if pos not in positions_to_moves:
+                    if base_pos[0] == pos[0] and base_pos[1] > pos[1]:
+                        if self.env.can_shoot(base_pos, FIREACTION.UP, pos):
+                            positions_to_moves[pos] = step
+                    elif base_pos[0] == pos[0] and base_pos[1] < pos[1]:
                         if self.env.can_shoot(base_pos, FIREACTION.DOWN,
-                                              ag_pos):
-                            agents_to_moves[ag] = step
-                    elif base_pos[1] == ag_pos[1] and base_pos[0] < ag_pos[0]:
+                                              pos):
+                            positions_to_moves[pos] = step
+                    elif base_pos[1] == pos[1] and base_pos[0] < pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.RIGHT,
-                                              ag_pos):
-                            agents_to_moves[ag] = step
-                    elif base_pos[1] == ag_pos[1] and base_pos[0] > ag_pos[0]:
+                                              pos):
+                            positions_to_moves[pos] = step
+                    elif base_pos[1] == pos[1] and base_pos[0] > pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.LEFT,
-                                              ag_pos):
-                            agents_to_moves[ag] = step
+                                              pos):
+                            positions_to_moves[pos] = step
                     else:
                         pass
         # not reacheable in max_steps
-        for ag in agents_next_position_copy:
-            if ag not in agents_to_moves:
-                agents_to_moves[ag] = 9999
-        return agents_to_moves
+        for pos in positions_to_moves:
+            if pos not in positions_to_moves:
+                positions_to_moves[pos] = 9999
+        return positions_to_moves
 
-    def combat_reward(self, player_action, agent_to_actions):
-        """After knowing the next action of every agents in visible area,
-        return the reward of the action
+    def move_combat_reward(self, player_action, agents_action_to_proba):
+        """ After knowning the next actions of all agents and the corresponding
+        probabilities, calculate the expected rewards if player takes a next action.
+        This will consider the following situations:
+            - move leads to overlapping with other players: penalty
+            - move leads to overlapping with a neutral enemies: rewards
+            - move leads to overlapping with a hostile enemies: rewards
 
         Args:
-            player_action: action taken by player
-            agent_to_actions:  dict(agent -> MOVEACTION|FIREACTION) for enemies and other players
-        Returns:
-            reward: reward of player
+            player_action: next action taken by player
+            agents_action_to_proba: <agents => (actions, probas)> mapping
 
-        # TODO take account into the rewards of other players, try to minimize the reward of others
+        Return:
+            reward: expected rewards
         """
+        player_position = player_action.move(self.env.player.x,
+                                             self.env.player.y)
         reward = 0
-        player = self.env.player
-        agents_next_position = {}
-        player_next_position = None
-        logger.info("===============combat reward=================")
-        logger.info("Player action: {}".format(player_action))
-        logger.info("Agents action: {}".format(agent_to_actions))
-
-        # ===========================================================================
-        # first process player moves
-        # ===========================================================================
-        for agent, action in agent_to_actions.items():
-            if isinstance(agent, Player):
-                agents_next_position[agent] = action.move(agent.x, agent.y)
-            else:
-                agents_next_position[agent] = (agent.x, agent.y)
-        player_next_position = player_action.move(player.x, player.y)
-
-        # check if player move leads to death of player
-        # i.e., overlap with other players
-        collision = 0
-        for p, pos in agents_next_position.items():
-            if isinstance(p, Player) and pos == player_next_position:
-                collision += 1
-        if collision > 0:
-            logger.info("Move lead to death: {} times, reward: {}".format(
-                collision, -1500))
-            reward -= 1500
-
-        # ===========================================================================
-        # then process players shoot
-        # ===========================================================================
-        # times of killed, killing other players and killing enemies
-        killed, killed_others, killed_enemies = 0, 0, 0
-
-        # check if killed by other players
-        for agent, action in agent_to_actions.items():
-            if not isinstance(action, FIREACTION):
-                continue
-            # check if player is killed by other players
-            if self.env.can_shoot(agents_next_position[agent], action,
-                                  player_next_position):
-                killed += 1
-
-        # check if kill other player or enemies
-        if isinstance(player_action, FIREACTION):
-            for agent, pos in agents_next_position.items():
-                if self.env.can_shoot(player_next_position, player_action,
-                                      pos):
+        for agent, acts_to_prob in agents_action_to_proba.items():
+            for act, proba in zip(*acts_to_prob):
+                if player_position == act.move(agent.x, agent.y):
                     if isinstance(agent, Player):
-                        killed_others += 1
+                        logger.info(
+                            "Next player postion {} overlap with a player".
+                            format(player_position))
+                        reward += (-1500) * proba
+                    elif isinstance(agent, Enemy) and agent.is_neutral:
+                        logger.info(
+                            "Next player postion {} overlap with a neutral enemy"
+                            .format(player_position))
+                        reward += 1000 * proba
                     else:
-                        killed_enemies += 1
-        # reward by shoot should be penalized against touching due to shoot cd
-        delta = killed_others * 500 + killed_enemies * 500
-        if killed > 0:
-            delta -= 500
+                        logger.info(
+                            "Next player postion {} overlap with a hostile enemy"
+                            .format(player_position))
+                        reward += (-1500) * proba
         logger.info(
-            "Killed by others: {}, Kill other players:{}, enemies: {} by shooting, reward: {}"
-            .format(killed, killed_others, killed_enemies, delta))
-        reward += delta
+            "Final move combat reward:{}, player next action:{}, next pos:{}".
+            format(reward, player_action, player_position))
+        return reward
 
-        # ===========================================================================
-        # then process enemy move
-        # case 1: neutral enemy, score!
-        # case 2: hostile enemy, killed!
-        # ===========================================================================
-        dead_times, kill_times = 0, 0
-        for agent, action in agent_to_actions.items():
-            if not isinstance(agent, Enemy):
-                continue
-            new_pos = action.move(agent.x, agent.y)
-            agents_next_position[agent] = new_pos
-            if new_pos == player_next_position:
-                if agent.is_neutral:
-                    kill_times += 1
-                else:
-                    dead_times += 1
-        delta = int(dead_times > 0) * (-1500) + kill_times * 1000
-        reward += delta
+    def shoot_combat_reward(self, player_action, agents_action_to_proba):
+        """
+        Here, we process all shot and then calculate the expected shoot rewards,
+        This will consider the following situations:
+            - player shoot some enemies
+            - player shoot other players
+            - player is shoot by other players
+        """
+        player_position = player_action.move(self.env.player.x,
+                                             self.env.player.y)
+        # note, all the three are expected times
+        killed, kill_others, kill_enemies = 0, 0, 0
+
+        for agent, acts_to_prob in agents_action_to_proba.items():
+            for action, proba in zip(*acts_to_prob):
+                agents_next_position = action.move(agent.x, agent.y)
+
+                # first check if killed by other players
+                if isinstance(action, FIREACTION):
+                    if self.env.can_shoot(agents_next_position, action,
+                                          player_position):
+                        killed += proba
+
+                # then, check if player can kill other player or enemies
+                if isinstance(player_action, FIREACTION):
+                    if self.env.can_shoot(player_position, player_action,
+                                          agents_next_position):
+                        if isinstance(agent, Player):
+                            kill_others += proba
+                        else:
+                            kill_enemies += proba
+        logger.info("Expectance of player getting killed: {}".format(killed))
+        logger.info("Expectance of player killing others players: {}".format(
+            kill_others))
         logger.info(
-            "Killed by enemies: {}, kill enemies by moving: {}, reward: {}".
-            format(dead_times, kill_times, delta))
+            "Expectance of player killing enemies: {}".format(kill_enemies))
+        reward = killed * (-1500) + kill_enemies * 500 + kill_others * 700
+        logger.info(
+            "Final shoot reward:{}, player next action: {}, next pos: {}".
+            format(reward, player_action, player_position))
+        return reward
 
-        # ===========================================================================
-        # enemy approaching reward (sometimes player chose not to move and
-        # enemy can approach you if they got no other choice
-        # ===========================================================================
-        agents_clear_shot_moves = self.clear_shot_moves(
-            player_next_position, agents_next_position)
-        logger.info("player next pos: {}, agents next pos: {}".format(
-            player_next_position, agents_next_position))
-        logger.info("Clear shot moves: {}".format(agents_clear_shot_moves))
-        delta = sum(
-            map(
-                lambda i: 1.0 / (i[1] + 1) * 200.0,
-                filter(lambda i: isinstance(i[0], Enemy),
-                       agents_clear_shot_moves.items())))
-        logger.info("Clear shot reward: {}".format(delta))
-        reward += delta
+    def enemy_approaching_reward(self, player_action,
+                                 enemies_positions_to_prob):
+        """
+        Here, we consider the rewards that player action leads to approaching
+        enemies in visible area.
+        The approaching reward is not based how far the distance between
+        the player and enemy, it's based that how many moves that the player
+        needs to get a shoot of position that enemy occupies.
+
+        """
+        player_position = player_action.move(self.env.player.x,
+                                             self.env.player.y)
+        reward = 0
+        all_target_positions = set()
+        for positions, _ in enemies_positions_to_prob.values():
+            all_target_positions.update(positions)
+        positions_to_moves = self.clear_shot_moves(player_position,
+                                                   all_target_positions)
+
+        for enemy, pos_to_proba in enemies_positions_to_prob.items():
+            for pos, proba in zip(*pos_to_proba):
+                if pos in positions_to_moves:
+                    moves_to_shot = positions_to_moves[pos]
+                    # moves to shot is smaller, the reward is larger
+                    reward += 1 / (moves_to_shot + 1.0) * proba
+        logger.info(
+            "Final enemy approaching reward:{}, player next action: {}, next pos: {}"
+            .format(reward, player_action, player_position))
         return reward
 
     def visible_area_reward(self, position):
