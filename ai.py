@@ -96,7 +96,17 @@ class RewardMaxStrategy(Stratey):
         if len(max_actions) == 1:
             best = str(max_actions[0])
         else:
-            best = str(choice(max_actions))
+            # priority of actions in case equal rewards, e.g., invalid precedes shoot
+            # move precedes invalid
+            best = None
+            moves_actions = [
+                a for a in max_actions if isinstance(a, MOVEACTION)
+            ]
+            if len(moves_actions) > 0:
+                best = str(choice(moves_actions))
+            if best is None:
+                best = str(choice(max_actions))
+
         logger.info("Best action: {}".format(best))
         return best
 
@@ -247,8 +257,8 @@ class RewardMaxStrategy(Stratey):
         if killed > 0:
             delta -= 500
         logger.info(
-            "Killed by others: {}, Kill other players:{}, enemies: {} by shooting, reward: {}".
-            format(killed, killed_others, killed_enemies, delta))
+            "Killed by others: {}, Kill other players:{}, enemies: {} by shooting, reward: {}"
+            .format(killed, killed_others, killed_enemies, delta))
         reward += delta
 
         # ===========================================================================
