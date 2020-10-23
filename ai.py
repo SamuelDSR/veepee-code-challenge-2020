@@ -120,7 +120,8 @@ class RewardMaxStrategy(Stratey):
         # for each position, we calculate the exploration gain
         expected_exploration_rewards = []
         for p_action in player_next_actions:
-            if isinstance(p_action, MOVEACTION) and p_action != MOVEACTION.INVALID:
+            if isinstance(p_action,
+                          MOVEACTION) and p_action != MOVEACTION.INVALID:
                 new_pos = p_action.move(self.env.player.x, self.env.player.y)
                 reward = self.visible_area_reward(new_pos)
                 reward += self.exploration_reward(new_pos)
@@ -317,7 +318,7 @@ class RewardMaxStrategy(Stratey):
                 if pos in positions_to_moves:
                     moves_to_shot = positions_to_moves[pos]
                     # moves to shot is smaller, the reward is larger
-                    reward += 1 / (moves_to_shot + 1.0) * proba
+                    reward += 1 / (moves_to_shot + 1.0) * proba * 100
         logger.info(
             "Final enemy approaching reward:{}, player next action: {}, next pos: {}"
             .format(reward, player_action, player_position))
@@ -327,7 +328,7 @@ class RewardMaxStrategy(Stratey):
         """number of added unknown space could be explored in this position
         """
         added_area = self.env.added_exploration_area(position[0], position[1])
-        reward = added_area * 5
+        reward = added_area * 20
         logger.info("New exploration area: {}, reward: {}".format(
             added_area, reward))
         return reward
@@ -344,11 +345,11 @@ class RewardMaxStrategy(Stratey):
         positions_to_visit = deque([])
         positions_to_visit.append((position, step))
 
-        steps_to_test = [4, 8]
+        steps_to_test = [4, 8, 12]
         max_step = max(steps_to_test)
         exploration = {}
         for s in steps_to_test:
-            exploration[s] = {"known": 0, "unknown": 0}
+            exploration[s] = {"unknown": 0, "heat": 0}
         while len(positions_to_visit) > 0:
             (x, y), current_step = positions_to_visit.popleft()
             if (x, y) in seen_positions:
@@ -358,11 +359,12 @@ class RewardMaxStrategy(Stratey):
             if self.env.board[y][x] == BoardState.FREE:
                 for s, stat in exploration.items():
                     if current_step <= s:
-                        stat["known"] += 1
+                        stat["heat"] += min(5, self.env.board_heatmap[y][x])
             elif self.env.board[y][x] == BoardState.UNKNOWN:
                 for s, stat in exploration.items():
                     if current_step <= s:
-                        stat["unknown"] += 1
+                        #  stat["unknown"] += 1
+                        stat["heat"] += 5
             else:
                 pass
 
@@ -380,12 +382,12 @@ class RewardMaxStrategy(Stratey):
         logger.info("Exploration statistics: {}".format(exploration))
         # calculate exploration reward
         step_rewards = [
-            exploration[s]["known"] + exploration[s]["unknown"] * 2
-            for s in steps_to_test
+            #  exploration[s]["known"] + exploration[s]["unknown"] * 2
+            exploration["heat"] for s in steps_to_test
         ]
         logger.info("Exploration reward for steps: {}".format(step_rewards))
         exploration_reward, last_r = 0, 0
-        alpha = 0.8
+        alpha = 0.75
         for i, r in enumerate(step_rewards):
             exploration_reward += (r - last_r) * alpha**i
             last_r = r

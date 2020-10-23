@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import attr
+import numpy as np
 
 from common import FIREACTION, BoardState, Enemy, Player
 
@@ -42,6 +43,7 @@ class RecurrentEnvironment(RecordEnvironement):
 
     # board, NOTE: board[ny][nx], ny before nx in indexing
     board = attr.ib(default=None, init=False)
+    board_heatmap = attr.ib(default=None, init=False)
     board_width = attr.ib(default=None, init=False)
     board_height = attr.ib(default=None, init=False)
 
@@ -125,6 +127,8 @@ class RecurrentEnvironment(RecordEnvironement):
         if self.board is None:
             self.board = [[BoardState.UNKNOWN for i in range(size["width"])]
                           for j in range(size["height"])]
+        if self.board_heatmap is None:
+            self.board_heatmap = np.zeros((size["height"], size["width"]))
 
         # update visible area
         self.varea_x1 = area["x1"]
@@ -209,6 +213,9 @@ class RecurrentEnvironment(RecordEnvironement):
                 abs(self.varea_y1 - self.player.y),
                 abs(self.varea_y2 - self.player.y)
             ])
+        # update player positions heatmap
+        self.board_heatmap += 1
+        self.board_heatmap[self.player.y][self.player.x] = 0
 
     def update_after_player_action(self, action):
         super().update_after_player_action(action)
