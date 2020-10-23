@@ -95,15 +95,7 @@ class RewardMaxStrategy(Stratey):
                 self.enemy_approaching_reward(p_action,
                                               agents_position_to_proba))
 
-        # for each position, we calculate the exploration gain
-        expected_exploration_rewards = []
-        for p_action in player_next_actions:
-            new_pos = p_action.move(self.env.player.x, self.env.player.y)
-            reward = self.visible_area_reward(new_pos)
-            reward += self.exploration_reward(new_pos)
-            expected_exploration_rewards.append(reward)
-
-        # sum of the two kinds of rewards
+        # sum of all combat rewards
         tot_combat_rewards = [
             expected_move_combat_rewards[i] +
             expected_shoot_combat_rewards[i] +
@@ -125,10 +117,18 @@ class RewardMaxStrategy(Stratey):
             return str(best_action)
 
         # if there is no combat reward, then look into exploration
+        # for each position, we calculate the exploration gain
+        expected_exploration_rewards = []
+        for p_action in player_next_actions:
+            if isinstance(p_action, MOVEACTION) and p_action != MOVEACTION.INVALID:
+                new_pos = p_action.move(self.env.player.x, self.env.player.y)
+                reward = self.visible_area_reward(new_pos)
+                reward += self.exploration_reward(new_pos)
+                expected_exploration_rewards.append(reward)
+
         best_action, max_reward = select_max(player_next_actions,
                                              expected_exploration_rewards,
                                              player_actions_prios)
-
         logger.info(
             "Best action: {} selected using exploration reward: {}".format(
                 max_reward, str(best_action)))
