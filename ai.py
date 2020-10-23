@@ -15,6 +15,38 @@ logger.add("run.log",
 #  format="{time}:{level}:{line}:{function}:{message}",
 #  level="INFO")
 
+ACTION_TO_PRIORITY = {
+    MOVEACTION.UP: 10,
+    MOVEACTION.DOWN: 10,
+    MOVEACTION.LEFT: 10,
+    MOVEACTION.RIGHT: 10,
+    MOVEACTION.INVALID: 9,
+    FIREACTION.LEFT: 1,
+    FIREACTION.RIGHT: 1,
+    FIREACTION.UP: 1,
+    FIREACTION.DOWN: 1
+}
+
+
+def select_max(actions, rewards, priorites):
+    """
+    Return action with max rewards, if there are
+    many optimal actions, chose the one with highest
+    priorites
+
+    Args:
+        actions(list): actions list
+        rewards(list): rewards list
+        priorites(dict):  map(action -> priority)
+
+    Returns:
+        best: best action with max rewards and highest priority
+        reward: max reward
+    """
+    act_reward_prio = zip(actions, zip(rewards, priorites))
+    best_choice = max(act_reward_prio, key=lambda x: x[1])
+    return best_choice[0], best_choice[1][0]
+
 
 class Stratey:
     ALL_ACTIONS = list(MOVEACTION) + list(FIREACTION)
@@ -44,6 +76,9 @@ class RewardMaxStrategy(Stratey):
         """
         current_player = self.env.player
         player_next_actions, _ = current_player.next_actions(self.env)
+        player_actions_prios = [
+            ACTION_TO_PRIORITY[action] for action in player_next_actions
+        ]
         agents_action_to_proba = self.next_actions_of_others()
         agents_position_to_proba = self.next_positions_of_others()
 
@@ -52,15 +87,13 @@ class RewardMaxStrategy(Stratey):
         expected_shoot_combat_rewards = []
         expected_enemy_approach_rewards = []
         for p_action in player_next_actions:
-            expected_move_combat_rewards.append(self.move_combat_reward(
-               p_action, agents_action_to_proba
-            ))
-            expected_shoot_combat_rewards.append(self.shoot_combat_reward(
-                p_action, agents_action_to_proba
-            ))
-            expected_enemy_approach_rewards.append(self.enemy_approaching_reward(
-                p_action, agents_position_to_proba
-            ))
+            expected_move_combat_rewards.append(
+                self.move_combat_reward(p_action, agents_action_to_proba))
+            expected_shoot_combat_rewards.append(
+                self.shoot_combat_reward(p_action, agents_action_to_proba))
+            expected_enemy_approach_rewards.append(
+                self.enemy_approaching_reward(p_action,
+                                              agents_position_to_proba))
 
         # for each position, we calculate the exploration gain
         expected_exploration_rewards = []
@@ -71,38 +104,35 @@ class RewardMaxStrategy(Stratey):
             expected_exploration_rewards.append(reward)
 
         # sum of the two kinds of rewards
-        tot_expected_rewards = [
+        tot_combat_rewards = [
             expected_move_combat_rewards[i] +
             expected_shoot_combat_rewards[i] +
-            expected_enemy_approach_rewards[i] +
-            expected_exploration_rewards[i]
+            expected_enemy_approach_rewards[i]
             for i in range(len(player_next_actions))
         ]
 
-        # chose the action that maximize the expected reward
-        logger.info("Rewards of each action: {}".format(
-            list(zip(player_next_actions, tot_expected_rewards))))
-        max_reward = max(tot_expected_rewards)
-        max_actions = [
-            a for i, a in enumerate(player_next_actions)
-            if tot_expected_rewards[i] == max_reward
-        ]
-        if len(max_actions) == 1:
-            best = str(max_actions[0])
-        else:
-            # priority of actions in case equal rewards, e.g., invalid precedes shoot
-            # move precedes invalid
-            best = None
-            moves_actions = [
-                a for a in max_actions if isinstance(a, MOVEACTION)
-            ]
-            if len(moves_actions) > 0:
-                best = str(choice(moves_actions))
-            if best is None:
-                best = str(choice(max_actions))
+        # first: chose the action that maximize the expected combat reward
+        # combat first!
+        logger.info("Combat Rewards of each action: {}".format(
+            list(zip(player_next_actions, tot_combat_rewards))))
+        best_action, max_reward = select_max(player_next_actions,
+                                             tot_combat_rewards,
+                                             player_actions_prios)
+        if max_reward > 0:
+            logger.info(
+                "Best action: {} selected using combat reward: {}".format(
+                    max_reward, str(best_action)))
+            return str(best_action)
 
-        logger.info("Best action: {}".format(best))
-        return best
+        # if there is no combat reward, then look into exploration
+        best_action, max_reward = select_max(player_next_actions,
+                                             expected_exploration_rewards,
+                                             player_actions_prios)
+
+        logger.info(
+            "Best action: {} selected using exploration reward: {}".format(
+                max_reward, str(best_action)))
+        return str(best_action)
 
     def next_actions_of_others(self):
         """
@@ -131,10 +161,7 @@ class RewardMaxStrategy(Stratey):
             agent_to_positions[enemy] = enemy.next_positions(self.env)
         return agent_to_positions
 
-    def clear_shot_moves(self,
-                         player_position,
-                         target_positions,
-                         max_step=10):
+    def clear_shot_moves(self, player_position, target_positions, max_step=10):
         """
         Get the minimum moves between player and all other target positions.
         Here we use a simple bfs search as we can assume that the visible area is quite small
@@ -167,16 +194,13 @@ class RewardMaxStrategy(Stratey):
                         if self.env.can_shoot(base_pos, FIREACTION.UP, pos):
                             positions_to_moves[pos] = step
                     elif base_pos[0] == pos[0] and base_pos[1] < pos[1]:
-                        if self.env.can_shoot(base_pos, FIREACTION.DOWN,
-                                              pos):
+                        if self.env.can_shoot(base_pos, FIREACTION.DOWN, pos):
                             positions_to_moves[pos] = step
                     elif base_pos[1] == pos[1] and base_pos[0] < pos[0]:
-                        if self.env.can_shoot(base_pos, FIREACTION.RIGHT,
-                                              pos):
+                        if self.env.can_shoot(base_pos, FIREACTION.RIGHT, pos):
                             positions_to_moves[pos] = step
                     elif base_pos[1] == pos[1] and base_pos[0] > pos[0]:
-                        if self.env.can_shoot(base_pos, FIREACTION.LEFT,
-                                              pos):
+                        if self.env.can_shoot(base_pos, FIREACTION.LEFT, pos):
                             positions_to_moves[pos] = step
                     else:
                         pass
