@@ -4,6 +4,7 @@
 from flask import Flask, request, jsonify
 from ai import RandomStrategy, RewardMaxStrategy
 from env import RecurrentEnvironment, RecordEnvironement
+import sys
 
 USER = "slong"
 EMAIL = "slong@veepee.com"
@@ -32,9 +33,13 @@ def next_move():
     except Exception:
         best_move = random_strategy.best_action()
     env.update_after_player_action(best_move)
-    env.save_frame(".")
     return jsonify(move=best_move)
 
 
 if __name__ == '__main__':
-    server.run(host="0.0.0.0", port=9090)
+    try:
+        server.run(host="0.0.0.0", port=9090)
+    finally:
+        print("Save game frames and board before exiting ...")
+        env.save(".")
+        sys.exit(0)
