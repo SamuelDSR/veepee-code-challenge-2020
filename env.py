@@ -73,7 +73,10 @@ class RecurrentEnvironment(RecordEnvironement):
         for p in self.other_players:
             rows[p.y][p.x] = "P"
         for e in self.enemies:
-            rows[e.y][e.x] = "E"
+            if e.is_neutral:
+                rows[e.y][e.x] = "O"
+            else:
+                rows[e.y][e.x] = "E"
         rows[self.player.y][self.player.x] = "M"
         rows = ["  ".join(r) for r in rows]
         bb = "\n".join(rows)
