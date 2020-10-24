@@ -118,22 +118,23 @@ class RewardMaxStrategy(Stratey):
 
         # if there is no combat reward, then look into exploration
         # for each position, we calculate the exploration gain
+        action_to_combat_reward = dict(zip(player_next_actions, tot_combat_rewards))
         expected_exploration_rewards = []
+        moves_actions = []
         for p_action in player_next_actions:
             if isinstance(p_action,
                           MOVEACTION) and p_action != MOVEACTION.INVALID:
                 new_pos = p_action.move(self.env.player.x, self.env.player.y)
                 reward = self.visible_area_reward(new_pos)
                 reward += self.exploration_reward(new_pos)
+                # add move combat to exploration to prevent agent selects a action
+                # that has negative combat rewards, e.g., death of player
+                reward += action_to_combat_reward[p_action]
                 expected_exploration_rewards.append(reward)
-        tot_rewards = [
-            tot_combat_rewards[i] + expected_exploration_rewards[i]
-            for i in range(len(player_next_actions))
-        ]
-        # add move combat to exploration to prevent agent selects a action
-        # that has negative combat rewards, e.g., death of player
-        best_action, max_reward = select_max(player_next_actions,
-                                             tot_rewards,
+                moves_actions.append(p_action)
+
+        best_action, max_reward = select_max(moves_actions,
+                                             expected_exploration_rewards,
                                              player_actions_prios)
         logger.info(
             "Best action: {} selected using exploration reward: {}".format(
@@ -292,7 +293,7 @@ class RewardMaxStrategy(Stratey):
                 if isinstance(player_action, FIREACTION) and isinstance(agent, Player):
                     if self.env.can_shoot(player_position, player_action,
                                           agents_next_position):
-                            kill_others += proba
+                        kill_others += proba
         logger.info("Expectance of player getting killed: {}".format(killed))
         logger.info("Expectance of player killing others players: {}".format(
             kill_others))
