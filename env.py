@@ -23,20 +23,20 @@ class RecordEnvironement(Environment):
     """
     A environement that just records every response returned by server
     """
-    game_frame = attr.ib(default={}, init=False)
+    game_frame = attr.ib(default=[], init=False)
     step = attr.ib(default=0, init=False)
 
     def update(self, state):
-        self.game_frame["state"] = state
-        self.game_frame["step"] = self.step
+        state["step"] = self.step
+        self.game_frame.append(state)
         self.step += 1
 
     def update_after_player_action(self, player_action):
-        self.game_frame["player_action"] = str(player_action)
+        self.game_frame[-1]["player_action"] = str(player_action)
 
-    def save_frame(self, prefix):
-        save_path = Path(prefix) / "state-{}.json".format(self.step)
-        json.dump(self.game_frame, save_path.open("w"))
+    def save(self, prefix):
+        frame_save_path = Path(prefix) / "game_frames.json"
+        json.dump(self.game_frame, frame_save_path.open('w'))
 
 
 @attr.s
@@ -47,6 +47,7 @@ class RecurrentEnvironment(RecordEnvironement):
     board_heatmap = attr.ib(default=None, init=False)
     board_width = attr.ib(default=None, init=False)
     board_height = attr.ib(default=None, init=False)
+    board_list = attr.ib(default=[], init=False)
 
     # visible area
     varea_x1 = attr.ib(default=-1, init=False)
@@ -81,6 +82,7 @@ class RecurrentEnvironment(RecordEnvironement):
         rows = ["  ".join(r) for r in rows]
         bb = "\n".join(rows)
         print(bb)
+        self.board_list.append(bb + "\n")
 
     def valid_pos(self, x, y):
         if x < 0 or x > self.board_width - 1 \
@@ -108,7 +110,9 @@ class RecurrentEnvironment(RecordEnvironement):
         return count
 
     def update(self, state):
-        logger.info("====================================Step: {}===============================================".format(self.step))
+        logger.info(
+            "====================================Step: {}==============================================="
+            .format(self.step))
         super().update(state)
         self.update_board(state)
         self.update_other_players(state)
@@ -225,4 +229,12 @@ class RecurrentEnvironment(RecordEnvironement):
     def update_after_player_action(self, action):
         super().update_after_player_action(action)
         self.player.actions.append(action)
-        print("Player action: {}".format(str(action)))
+        msg = "Player action: {}".format(str(action))
+        print(msg)
+        self.board_list.append(msg+"\n")
+
+    def save(self, prefix):
+        super().save(prefix)
+        board_list_file = (Path(prefix) / "board_list.txt").open('w')
+        board_list_file.writelines(self.board_list)
+
