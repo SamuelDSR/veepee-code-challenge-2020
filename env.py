@@ -7,6 +7,7 @@ import attr
 import numpy as np
 
 from common import FIREACTION, BoardState, Enemy, Player
+from loguru import logger
 
 
 class Environment():
@@ -104,6 +105,7 @@ class RecurrentEnvironment(RecordEnvironement):
         return count
 
     def update(self, state):
+        logger.info("====================================Step: {}===============================================".format(self.step))
         super().update(state)
         self.update_board(state)
         self.update_other_players(state)
@@ -220,3 +222,4 @@ class RecurrentEnvironment(RecordEnvironement):
     def update_after_player_action(self, action):
         super().update_after_player_action(action)
         self.player.actions.append(action)
+        print("Player action: {}".format(str(action)))

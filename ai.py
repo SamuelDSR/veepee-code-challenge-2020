@@ -126,9 +126,14 @@ class RewardMaxStrategy(Stratey):
                 reward = self.visible_area_reward(new_pos)
                 reward += self.exploration_reward(new_pos)
                 expected_exploration_rewards.append(reward)
-
+        tot_rewards = [
+            tot_combat_rewards[i] + expected_exploration_rewards[i]
+            for i in range(len(player_next_actions))
+        ]
+        # add move combat to exploration to prevent agent selects a action
+        # that has negative combat rewards, e.g., death of player
         best_action, max_reward = select_max(player_next_actions,
-                                             expected_exploration_rewards,
+                                             tot_rewards,
                                              player_actions_prios)
         logger.info(
             "Best action: {} selected using exploration reward: {}".format(
@@ -256,7 +261,7 @@ class RewardMaxStrategy(Stratey):
         """
         Here, we process all shot and then calculate the expected shoot rewards,
         This will consider the following situations:
-            - player shoot some enemies
+            - player shoot some enemies (enemies can not dodge)
             - player shoot other players
             - player is shoot by other players
         """
@@ -264,6 +269,14 @@ class RewardMaxStrategy(Stratey):
                                              self.env.player.y)
         # note, all the three are expected times
         killed, kill_others, kill_enemies = 0, 0, 0
+
+        # check if kill enemies, there is no proba since enemies cannot dodge
+        if isinstance(player_action, FIREACTION):
+            for agent in agents_action_to_proba:
+                if isinstance(agent, Enemy):
+                    if self.env.can_shoot(player_position, player_action,
+                                          (agent.x, agent.y)):
+                        kill_enemies += 1
 
         for agent, acts_to_prob in agents_action_to_proba.items():
             for action, proba in zip(*acts_to_prob):
@@ -275,14 +288,11 @@ class RewardMaxStrategy(Stratey):
                                           player_position):
                         killed += proba
 
-                # then, check if player can kill other player or enemies
-                if isinstance(player_action, FIREACTION):
+                # then, check if player can kill other player
+                if isinstance(player_action, FIREACTION) and isinstance(agent, Player):
                     if self.env.can_shoot(player_position, player_action,
                                           agents_next_position):
-                        if isinstance(agent, Player):
                             kill_others += proba
-                        else:
-                            kill_enemies += proba
         logger.info("Expectance of player getting killed: {}".format(killed))
         logger.info("Expectance of player killing others players: {}".format(
             kill_others))
@@ -349,7 +359,7 @@ class RewardMaxStrategy(Stratey):
         max_step = max(steps_to_test)
         exploration = {}
         for s in steps_to_test:
-            exploration[s] = {"unknown": 0, "heat": 0}
+            exploration[s] = {"unknown": 0, "known": 0, "heat": 0}
         while len(positions_to_visit) > 0:
             (x, y), current_step = positions_to_visit.popleft()
             if (x, y) in seen_positions:
@@ -360,10 +370,11 @@ class RewardMaxStrategy(Stratey):
                 for s, stat in exploration.items():
                     if current_step <= s:
                         stat["heat"] += min(5, self.env.board_heatmap[y][x])
+                        stat["known"] += 1
             elif self.env.board[y][x] == BoardState.UNKNOWN:
                 for s, stat in exploration.items():
                     if current_step <= s:
-                        #  stat["unknown"] += 1
+                        stat["unknown"] += 1
                         stat["heat"] += 5
             else:
                 pass
@@ -383,7 +394,7 @@ class RewardMaxStrategy(Stratey):
         # calculate exploration reward
         step_rewards = [
             #  exploration[s]["known"] + exploration[s]["unknown"] * 2
-            exploration["heat"] for s in steps_to_test
+            exploration[s]["heat"] for s in steps_to_test
         ]
         logger.info("Exploration reward for steps: {}".format(step_rewards))
         exploration_reward, last_r = 0, 0
