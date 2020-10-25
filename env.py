@@ -42,6 +42,8 @@ class RecordEnvironement(Environment):
 @attr.s
 class RecurrentEnvironment(RecordEnvironement):
     exploration_max_step = attr.ib(default=4, init=False)
+    last_exploration_action = attr.ib(default=None, init=False)
+    exploration_inertia = attr.ib(default=4, init=False)
 
     # board, NOTE: board[ny][nx], ny before nx in indexing
     board = attr.ib(default=None, init=False)

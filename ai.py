@@ -116,27 +116,46 @@ class RewardMaxStrategy(Stratey):
         best_action, max_reward = select_max(player_next_actions,
                                              tot_combat_rewards,
                                              player_actions_prios)
-        if max_reward > 0:
+        if max_reward != 0:
             logger.info(
                 "Best action: {} selected using combat reward: {}".format(
                     max_reward, str(best_action)))
+            # exploration action breaks
+            if self.env.last_exploration_action is not None:
+                self.env.last_exploration_action = None
+                self.env.exploration_inertia = 4
             return str(best_action)
 
-        # if there is no combat reward, then look into exploration
-        # for each position, we calculate the exploration gain
-        action_to_combat_reward = dict(
-            zip(player_next_actions, tot_combat_rewards))
+        # if there is no combat reward (all 0, means there is no emeny around to catch)
+        # then look into exploration for each position, we calculate the exploration gain
+
+        # if last step is an exploration action, continue with this action
+        last_exploration_action = self.env.last_exploration_action
+        if last_exploration_action is not None:
+            nx, ny = last_exploration_action.move(current_player.x, current_player.y)
+            if self.env.valid_pos(nx, ny):
+                best_action = str(last_exploration_action)
+                # exploration inertia max: 4, if reach, we need to recalculate exploration reward
+                self.env.exploration_inertia -= 1
+                if self.env.exploration_inertia == 0:
+                    # reset inertia
+                    self.env.last_exploration_action = None
+                    self.env.exploration_inertia = 4
+                logger.info(
+                    "Best action: {} selected using last exploration action".format(best_action))
+                return best_action
+
+        #  action_to_combat_reward = dict(
+            #  zip(player_next_actions, tot_combat_rewards))
         expected_exploration_rewards = []
         moves_actions = []
         for p_action in player_next_actions:
             if isinstance(p_action,
                           MOVEACTION) and p_action != MOVEACTION.INVALID:
-                #  new_pos = p_action.move(self.env.player.x, self.env.player.y)
-                #  reward = self.visible_area_reward(new_pos)
                 reward = self.exploration_reward(p_action)
-                # add move combat to exploration to prevent agent selects a action
-                # that has negative combat rewards, e.g., death of player
-                reward += action_to_combat_reward[p_action]
+                # we add move combat to exploration to prevent agent selects a action
+                # that has negative combat rewards, e.g., death of player, in case it happens
+                #  reward += action_to_combat_reward[p_action]
                 expected_exploration_rewards.append(reward)
                 moves_actions.append(p_action)
 
@@ -146,6 +165,9 @@ class RewardMaxStrategy(Stratey):
         logger.info(
             "Best action: {} selected using exploration reward: {}".format(
                 max_reward, str(best_action)))
+        # remember this exploration action
+        self.env.last_exploration_action = best_action
+        self.env.exploration_inertia = 4
         return str(best_action)
 
     def next_actions_of_others(self):
