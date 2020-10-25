@@ -41,6 +41,7 @@ class RecordEnvironement(Environment):
 
 @attr.s
 class RecurrentEnvironment(RecordEnvironement):
+    exploration_max_step = attr.ib(default=4, init=False)
 
     # board, NOTE: board[ny][nx], ny before nx in indexing
     board = attr.ib(default=None, init=False)
@@ -232,9 +233,9 @@ class RecurrentEnvironment(RecordEnvironement):
         msg = "Player action: {}".format(str(action))
         print(msg)
         self.board_list.append(msg+"\n")
+        self.exploration_max_step = (self.step // 15)*2 + self.exploration_max_step
 
     def save(self, prefix):
         super().save(prefix)
         board_list_file = (Path(prefix) / "board_list.txt").open('w')
         board_list_file.writelines(self.board_list)
-
