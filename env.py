@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import json
 from pathlib import Path
+from collections import deque
 
 import attr
 import numpy as np
@@ -231,10 +232,78 @@ class RecurrentEnvironment(RecordEnvironement):
         self.player.actions.append(action)
         msg = "Player action: {}".format(str(action))
         print(msg)
-        self.board_list.append(msg+"\n")
+        self.board_list.append(msg + "\n")
 
     def save(self, prefix):
         super().save(prefix)
         board_list_file = (Path(prefix) / "board_list.txt").open('w')
         board_list_file.writelines(self.board_list)
 
+    def unknown_in_quadrant(self, position):
+        """
+        Divide the game board as four quadrant according to position.
+        Then calculate how many unknown area in each quadrant
+        """
+        bx, by = position
+        upper_left, upper_right, down_left, down_right = 0, 0, 0, 0
+        for y in range(self.board_height):
+            for x in range(self.board_width):
+                if self.board[y][x] == BoardState.UNKNOWN:
+                    if x < bx and y < by:
+                        upper_left += 1
+                    elif x < bx and y > by:
+                        down_left += 1
+                    elif x > bx and y < by:
+                        upper_right += 1
+                    else:
+                        down_right += 1
+        return [((-1, -1), upper_left), ((1, -1), upper_right),
+                ((-1, 1), down_left), ((1, 1), down_right)]
+
+    def bfs_walk(self, current_position,
+                 allow_diretions=[(1, -1), (1, 1), (-1, 1), (-1, -1)],
+                 target_position=None):
+        """
+        Do a breadth-first walk to find the shortest available path
+        from <current_position> to <target_position>
+        If target_position is None, <the target_position> will be the
+        nearest unknown point
+
+        Args:
+            current_position: (x, y), base point
+            allow_diretions: the allowed move directions for next point
+            target_position: the target to reach, default None
+
+        Returns:
+            paths (list): a list of path points to reach the target position
+            target_position: (x, y), the target position
+        """
+        seen_positions = set()
+        step = 0
+        positions_to_visit = deque([])
+        positions_to_visit.append((current_position, step))
+        # children => parent
+        path_dict = {}
+
+        while len(positions_to_visit) > 0:
+            (x, y), current_step = positions_to_visit.popleft()
+            if (x, y) in seen_positions:
+                continue
+            seen_positions.add((x, y))
+            if target_position is None and self.board[y][x] == BoardState.UNKNOWN:
+                target_position = (y, x)
+                break
+            if (x, y) == target_position:
+                break
+            for d in allow_diretions:
+                nx, ny = x+d[0], y+d[1]
+                if (nx, ny) not in seen_positions and self.env.valid_pos(
+                        nx, ny):
+                    positions_to_visit.append(((nx, ny), current_step + 1))
+                    path_dict[(nx, ny)] = (x, y)
+        paths = []
+        # after reaching the target position,  get the paths
+        while target_position != current_position:
+            paths.append(target_position)
+            target_position = path_dict[target_position]
+        return paths, target_position

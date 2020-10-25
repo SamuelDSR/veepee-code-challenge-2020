@@ -5,7 +5,7 @@ from random import choice
 
 from loguru import logger
 
-from common import FIREACTION, MOVEACTION, BoardState, Enemy, Player
+from common import FIREACTION, MOVEACTION, Enemy, Player
 
 logger.remove()
 logger.add("run.log",
@@ -68,6 +68,11 @@ class RandomStrategy(Stratey):
 
 
 class RewardMaxStrategy(Stratey):
+    def __init__(self, env):
+        super().__init__(env)
+        self.path_points = None
+        self.target_position = None
+
     @logger.catch
     def best_action(self):
         """
@@ -93,12 +98,11 @@ class RewardMaxStrategy(Stratey):
             expected_shoot_combat_rewards.append(
                 self.shoot_combat_reward(p_action, agents_action_to_proba))
             expected_enemy_move_combat_rewards.append(
-                self.enemy_move_combat_reward(p_action, agents_action_to_proba)
-            )
+                self.enemy_move_combat_reward(p_action,
+                                              agents_action_to_proba))
             expected_enemy_approach_rewards.append(
                 self.enemy_approaching_reward(p_action,
                                               agents_position_to_proba))
-
         # sum of all combat rewards
         tot_combat_rewards = [
             expected_move_combat_rewards[i] +
@@ -115,36 +119,32 @@ class RewardMaxStrategy(Stratey):
         best_action, max_reward = select_max(player_next_actions,
                                              tot_combat_rewards,
                                              player_actions_prios)
-        if max_reward > 0:
+        if max_reward != 0:
             logger.info(
                 "Best action: {} selected using combat reward: {}".format(
                     max_reward, str(best_action)))
             return str(best_action)
 
-        # if there is no combat reward, then look into exploration
-        # for each position, we calculate the exploration gain
-        action_to_combat_reward = dict(
-            zip(player_next_actions, tot_combat_rewards))
-        expected_exploration_rewards = []
-        moves_actions = []
-        for p_action in player_next_actions:
-            if isinstance(p_action,
-                          MOVEACTION) and p_action != MOVEACTION.INVALID:
-                new_pos = p_action.move(self.env.player.x, self.env.player.y)
-                reward = self.visible_area_reward(new_pos)
-                reward += self.exploration_reward(new_pos)
-                # add move combat to exploration to prevent agent selects a action
-                # that has negative combat rewards, e.g., death of player
-                reward += action_to_combat_reward[p_action]
-                expected_exploration_rewards.append(reward)
-                moves_actions.append(p_action)
+        # if there is no combat reward, set a target point to explore in the game board
+        # during the path to target position, the player may chase enemy
+        # we need to recalculate the path if it happens
+        if self.target_position is None:
+            self.next_target_point((current_player.x, current_player.y))
 
-        best_action, max_reward = select_max(moves_actions,
-                                             expected_exploration_rewards,
-                                             player_actions_prios)
-        logger.info(
-            "Best action: {} selected using exploration reward: {}".format(
-                max_reward, str(best_action)))
+        last_path_point = self.path_points.pop()
+        # player deviate from last path points
+        if abs(current_player.x - last_path_point[0]) + abs(
+                current_player.y - last_path_point[1]) > 1:
+            self.next_target_point((current_player.x, current_player.y),
+                                   target_position=self.target_position)
+            last_path_point = self.path_points.pop()
+
+        for action in list(MOVEACTION):
+            if action.move(current_player.x,
+                           current_player.y) == last_path_point:
+                best_action = action
+                break
+        logger.info("Best action: {} using path planning".format(str(best_action)))
         return str(best_action)
 
     def next_actions_of_others(self):
@@ -403,73 +403,17 @@ class RewardMaxStrategy(Stratey):
         logger.info("Final enemy approaching reward:{}".format(reward))
         return reward
 
-    def visible_area_reward(self, position):
-        """number of added unknown space could be explored in this position
+    def next_target_point(self, position):
         """
-        added_area = self.env.added_exploration_area(position[0], position[1])
-        reward = added_area * 20
-        logger.info("New exploration area: {}, reward: {}".format(
-            added_area, reward))
-        return reward
-
-    def exploration_reward(self, position):
+        From the base pos, select a reachable unknown point according to some metrics,
+        then if there is no enemies around, the agent try to reach the target point.
         """
-        From the base pos, do a breadth-first walk of the current board within max steps
-        Idea: the exploration reward for a position (x, y) is:
-            - the number of known positions it can visite with max_step steps
-            - the number of (unknown positions)*2 it can reach
-        """
-        seen_positions = set()
-        step = 0
-        positions_to_visit = deque([])
-        positions_to_visit.append((position, step))
-
-        steps_to_test = [4, 8, 12]
-        max_step = max(steps_to_test)
-        exploration = {}
-        for s in steps_to_test:
-            exploration[s] = {"unknown": 0, "known": 0, "heat": 0}
-        while len(positions_to_visit) > 0:
-            (x, y), current_step = positions_to_visit.popleft()
-            if (x, y) in seen_positions:
-                continue
-            seen_positions.add((x, y))
-
-            if self.env.board[y][x] == BoardState.FREE:
-                for s, stat in exploration.items():
-                    if current_step <= s:
-                        stat["heat"] += min(5, self.env.board_heatmap[y][x])
-                        stat["known"] += 1
-            elif self.env.board[y][x] == BoardState.UNKNOWN:
-                for s, stat in exploration.items():
-                    if current_step <= s:
-                        stat["unknown"] += 1
-                        stat["heat"] += 5
-            else:
-                pass
-
-            # if reach max step or the current pos is unknown, don't continue
-            if current_step + 1 > max_step or self.env.board[y][
-                    x] == BoardState.UNKNOWN:
-                continue
-            # add next pos that are not already seen and invalid
-            for action in list(MOVEACTION):
-                nx, ny = action.move(x, y)
-                if (nx, ny) not in seen_positions and self.env.valid_pos(
-                        nx, ny):
-                    positions_to_visit.append(((nx, ny), current_step + 1))
-
-        logger.info("Exploration statistics: {}".format(exploration))
-        # calculate exploration reward
-        step_rewards = [
-            #  exploration[s]["known"] + exploration[s]["unknown"] * 2
-            exploration[s]["heat"] for s in steps_to_test
-        ]
-        logger.info("Exploration reward for steps: {}".format(step_rewards))
-        exploration_reward, last_r = 0, 0
-        alpha = 0.75
-        for i, r in enumerate(step_rewards):
-            exploration_reward += (r - last_r) * alpha**i
-            last_r = r
-        logger.info("Final exploration reward: {}".format(exploration_reward))
-        return exploration_reward
+        # first: chose a quadrant with most known cell to explore
+        unknown_in_quadrant = self.env.unknown_in_quadrant(position)
+        target_quadrant_dirs, count = max(unknown_in_quadrant,
+                                          key=lambda x: x[1])
+        path_points, target_position = self.env.bfs_walk(
+            position, [target_quadrant_dirs])
+        logger.info("Chosed next target position: {}".format(target_position))
+        self.path_points = path_points
+        self.target_position = target_position
