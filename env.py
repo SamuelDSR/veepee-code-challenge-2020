@@ -7,7 +7,7 @@ from collections import deque
 import attr
 import numpy as np
 
-from common import FIREACTION, BoardState, Enemy, Player
+from common import FIREACTION, MOVEACTION, BoardState, Enemy, Player
 from loguru import logger
 
 
@@ -211,6 +211,7 @@ class RecurrentEnvironment(RecordEnvironement):
         player = state["player"]
         self.player.x = player["position"]["x"]
         self.player.y = player["position"]["y"]
+        logger.info("=================Player position: {}===================".format((self.player.x, self.player.y)))
         self.player.can_shoot = player["fire"]
         self.player.positions.append((self.player.x, self.player.y))
         if self.short_range_x is None:
@@ -260,9 +261,7 @@ class RecurrentEnvironment(RecordEnvironement):
         return [((-1, -1), upper_left), ((1, -1), upper_right),
                 ((-1, 1), down_left), ((1, 1), down_right)]
 
-    def bfs_walk(self, current_position,
-                 allow_diretions=[(1, -1), (1, 1), (-1, 1), (-1, -1)],
-                 target_position=None):
+    def bfs_walk(self, current_position, allow_diretion=None, target_position=None):
         """
         Do a breadth-first walk to find the shortest available path
         from <current_position> to <target_position>
@@ -291,19 +290,36 @@ class RecurrentEnvironment(RecordEnvironement):
                 continue
             seen_positions.add((x, y))
             if target_position is None and self.board[y][x] == BoardState.UNKNOWN:
-                target_position = (y, x)
-                break
+                # if the nearest target position is in our quadrant, chose it
+                if allow_diretion is not None:
+                    if (x - current_position[0]) * allow_diretion[0] >= 0 and\
+                            (y - current_position[1]) * allow_diretion[1] <= 0:
+                        target_position = (x, y)
+                        break
+
             if (x, y) == target_position:
                 break
-            for d in allow_diretions:
-                nx, ny = x+d[0], y+d[1]
-                if (nx, ny) not in seen_positions and self.env.valid_pos(
-                        nx, ny):
+
+            # add next search targets
+            # bugfix: will not search a path with all unknown path
+            if self.board[y][x] == BoardState.UNKNOWN:
+                continue
+
+            for action in list(MOVEACTION):
+                if action == MOVEACTION.INVALID:
+                    continue
+                nx, ny = action.move(x, y)
+                if (nx, ny) not in seen_positions and self.valid_pos(nx, ny):
                     positions_to_visit.append(((nx, ny), current_step + 1))
                     path_dict[(nx, ny)] = (x, y)
+
         paths = []
         # after reaching the target position,  get the paths
-        while target_position != current_position:
-            paths.append(target_position)
-            target_position = path_dict[target_position]
+        logger.info("Player current position: {}".format(current_position))
+        logger.info("Bfs walk: target position: {}".format(target_position))
+        pos = target_position
+        while pos != current_position:
+            paths.append(pos)
+            pos = path_dict[pos]
+        logger.info("The paths are: {}".format(paths))
         return paths, target_position

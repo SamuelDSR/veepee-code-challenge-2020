@@ -5,7 +5,7 @@ from random import choice
 
 from loguru import logger
 
-from common import FIREACTION, MOVEACTION, Enemy, Player
+from common import FIREACTION, MOVEACTION, Enemy, Player, BoardState
 
 logger.remove()
 logger.add("run.log",
@@ -125,10 +125,16 @@ class RewardMaxStrategy(Stratey):
                     max_reward, str(best_action)))
             return str(best_action)
 
+        # =============================================================================
         # if there is no combat reward, set a target point to explore in the game board
-        # during the path to target position, the player may chase enemy
-        # we need to recalculate the path if it happens
-        if self.target_position is None:
+        # there are three cases where we need to recalculate the path points
+        # - the player chose to chase enemy in middle way
+        # - we reach the target position
+        # - we found that the target position is a wall (therefore unreachable)
+        # =============================================================================
+        target_position = self.target_position
+        if target_position is None or (current_player.x, current_player.y) == target_position or\
+                self.env.board[target_position[1]][target_position[0]] == BoardState.WALL:
             self.next_target_point((current_player.x, current_player.y))
 
         last_path_point = self.path_points.pop()
@@ -403,17 +409,18 @@ class RewardMaxStrategy(Stratey):
         logger.info("Final enemy approaching reward:{}".format(reward))
         return reward
 
-    def next_target_point(self, position):
+    def next_target_point(self, position, target_position=None):
         """
         From the base pos, select a reachable unknown point according to some metrics,
         then if there is no enemies around, the agent try to reach the target point.
         """
         # first: chose a quadrant with most known cell to explore
         unknown_in_quadrant = self.env.unknown_in_quadrant(position)
-        target_quadrant_dirs, count = max(unknown_in_quadrant,
-                                          key=lambda x: x[1])
+        logger.info("Unknown cells in each quadrant: {}".format(unknown_in_quadrant))
+        target_direction, count = max(unknown_in_quadrant,
+                                      key=lambda x: x[1])
         path_points, target_position = self.env.bfs_walk(
-            position, [target_quadrant_dirs])
-        logger.info("Chosed next target position: {}".format(target_position))
+            position, target_direction, target_position)
+        logger.info("Chosing a next target position: {}".format(target_position))
         self.path_points = path_points
         self.target_position = target_position
