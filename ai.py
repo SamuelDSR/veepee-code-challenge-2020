@@ -131,9 +131,9 @@ class RewardMaxStrategy(Stratey):
         for p_action in player_next_actions:
             if isinstance(p_action,
                           MOVEACTION) and p_action != MOVEACTION.INVALID:
-                new_pos = p_action.move(self.env.player.x, self.env.player.y)
+                #  new_pos = p_action.move(self.env.player.x, self.env.player.y)
                 #  reward = self.visible_area_reward(new_pos)
-                reward = self.exploration_reward(new_pos)
+                reward = self.exploration_reward(p_action)
                 # add move combat to exploration to prevent agent selects a action
                 # that has negative combat rewards, e.g., death of player
                 reward += action_to_combat_reward[p_action]
@@ -446,13 +446,18 @@ class RewardMaxStrategy(Stratey):
             added_area, reward))
         return reward
 
-    def exploration_reward(self, position):
+    def exploration_reward(self, player_action):
         """
         From the base pos, do a breadth-first walk of the current board within max steps
         Idea: the exploration reward for a position (x, y) is:
             - the number of known positions it can visite with max_step steps
             - the number of (unknown positions)*2 it can reach
+        Note: during the bfs walk, if a player chose going right, it shouldn't go back.
+        It means that the x-axis values of all next possible should be greater
+        than the agent.x.
         """
+        position = player_action.move(self.env.player.x,
+                                      self.env.player.y)
         seen_positions = set()
         step = 0
         positions_to_visit = deque([])
@@ -482,7 +487,12 @@ class RewardMaxStrategy(Stratey):
                 nx, ny = action.move(x, y)
                 if (nx, ny) not in seen_positions and self.env.valid_pos(
                         nx, ny):
-                    positions_to_visit.append(((nx, ny), current_step + 1))
+                    # <don't go back> check
+                    if (player_action == MOVEACTION.UP and ny <= self.env.player.y) or\
+                            (player_action == MOVEACTION.DOWN and ny >= self.env.player.y) or\
+                            (player_action == MOVEACTION.LEFT and nx <= self.env.player.x) or\
+                            (player_action == MOVEACTION.RIGHT and nx >= self.env.player.x):
+                        positions_to_visit.append(((nx, ny), current_step + 1))
         logger.info("Exploration statistics: {}".format(exploration))
         # calculate exploration reward
         reward = exploration["heat"]
