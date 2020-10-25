@@ -86,25 +86,26 @@ class RewardMaxStrategy(Stratey):
         expected_move_combat_rewards = []
         expected_shoot_combat_rewards = []
         expected_enemy_move_combat_rewards = []
-        expected_enemy_approach_rewards = []
+        expected_enemy_combat_approaching_rewards = []
+
         for p_action in player_next_actions:
             expected_move_combat_rewards.append(
                 self.move_combat_reward(p_action, agents_action_to_proba))
             expected_shoot_combat_rewards.append(
                 self.shoot_combat_reward(p_action, agents_action_to_proba))
             expected_enemy_move_combat_rewards.append(
-                self.enemy_move_combat_reward(p_action, agents_action_to_proba)
-            )
-            expected_enemy_approach_rewards.append(
-                self.enemy_approaching_reward(p_action,
-                                              agents_position_to_proba))
+                self.enemy_move_combat_reward(p_action,
+                                              agents_action_to_proba))
+            expected_enemy_combat_approaching_rewards.append(
+                self.enemy_combat_approaching_reward(p_action,
+                                                     agents_position_to_proba))
 
         # sum of all combat rewards
         tot_combat_rewards = [
             expected_move_combat_rewards[i] +
             expected_shoot_combat_rewards[i] +
             expected_enemy_move_combat_rewards[i] +
-            expected_enemy_approach_rewards[i]
+            expected_enemy_combat_approaching_rewards[i]
             for i in range(len(player_next_actions))
         ]
 
@@ -131,8 +132,8 @@ class RewardMaxStrategy(Stratey):
             if isinstance(p_action,
                           MOVEACTION) and p_action != MOVEACTION.INVALID:
                 new_pos = p_action.move(self.env.player.x, self.env.player.y)
-                reward = self.visible_area_reward(new_pos)
-                reward += self.exploration_reward(new_pos)
+                #  reward = self.visible_area_reward(new_pos)
+                reward = self.exploration_reward(new_pos)
                 # add move combat to exploration to prevent agent selects a action
                 # that has negative combat rewards, e.g., death of player
                 reward += action_to_combat_reward[p_action]
@@ -174,54 +175,76 @@ class RewardMaxStrategy(Stratey):
             agent_to_positions[enemy] = enemy.next_positions(self.env)
         return agent_to_positions
 
-    def clear_shot_moves(self, player_position, target_positions, max_step=10):
+    def moves_to_target(self, player_position, target_positions, max_step=12):
         """
         Get the minimum moves between player and all other target positions.
         Here we use a simple bfs search as we can assume that the visible area is quite small
+
+        Note: during the bfs search, all cells excepted WALL are considered (known and unknown)
+        are considering <FREE> cell that the player can <move to> and <shoot through>
+
+        Args:
+            player_position (tuple(x, y)): player current positions
+            target_positions (list(tuple)): list of target positions
+            max_step (int): max bfs search steps
+
+        Return:
+            positions_to_shot_moves (dict): {target_position -> number of moves to get a shot of enemy}
+            positions_to_move (dict): {target_position -> number of moves to touch enemy}
         """
-        positions_to_moves = {}
+        positions_to_shot_moves = {}
+        positions_to_move = {}
         queue = deque([])
         queue.append((player_position, 0))
         seen_positions = set()
 
         # if there are still agents that are not determined
-        while len(queue) > 0 and len(positions_to_moves) < len(
+        while len(queue) > 0 and len(positions_to_move) < len(
                 target_positions):
             base_pos, step = queue.popleft()
             if step > max_step:
-                break
+                continue
             seen_positions.add(base_pos)
 
             # add next search candidates
             for action in list(MOVEACTION):
                 new_pos = action.move(base_pos[0], base_pos[1])
+                # unknown cell is a valid pos too!
                 if self.env.valid_pos(
                         new_pos[0],
                         new_pos[1]) and new_pos not in seen_positions:
                     queue.append((new_pos, step + 1))
 
-            # check if this new pos has a clear shot of target pos
             for pos in target_positions:
-                if pos not in positions_to_moves:
+                # check if this new pos has a clear shot of target pos
+                if pos not in positions_to_shot_moves:
                     if base_pos[0] == pos[0] and base_pos[1] > pos[1]:
                         if self.env.can_shoot(base_pos, FIREACTION.UP, pos):
-                            positions_to_moves[pos] = step
+                            positions_to_shot_moves[pos] = step
                     elif base_pos[0] == pos[0] and base_pos[1] < pos[1]:
                         if self.env.can_shoot(base_pos, FIREACTION.DOWN, pos):
-                            positions_to_moves[pos] = step
+                            positions_to_shot_moves[pos] = step
                     elif base_pos[1] == pos[1] and base_pos[0] < pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.RIGHT, pos):
-                            positions_to_moves[pos] = step
+                            positions_to_shot_moves[pos] = step
                     elif base_pos[1] == pos[1] and base_pos[0] > pos[0]:
                         if self.env.can_shoot(base_pos, FIREACTION.LEFT, pos):
-                            positions_to_moves[pos] = step
+                            positions_to_shot_moves[pos] = step
                     else:
                         pass
+                # check if the new pos can reach the target pos
+                if pos not in positions_to_move:
+                    if base_pos == pos:
+                        positions_to_move[pos] = step
+
         # not reacheable in max_steps
-        for pos in positions_to_moves:
-            if pos not in positions_to_moves:
-                positions_to_moves[pos] = 9999
-        return positions_to_moves
+        #  for pos in positions_to_shot_moves:
+        #  if pos not in positions_to_shot_moves:
+        #  positions_to_shot_moves[pos] = 999999
+        #  for pos in positions_to_move:
+        #  if pos not in positions_to_shot_moves:
+        #  positions_to_move[pos] = 999999
+        return positions_to_shot_moves, positions_to_move
 
     def move_combat_reward(self, player_action, agents_action_to_proba):
         """ After knowning the next actions of all agents and the corresponding
@@ -356,14 +379,14 @@ class RewardMaxStrategy(Stratey):
         logger.info("Final enemy move combat reward:{}".format(reward))
         return reward
 
-    def enemy_approaching_reward(self, player_action,
-                                 enemies_positions_to_prob):
+    def enemy_combat_approaching_reward(self, player_action,
+                                        enemies_positions_to_prob):
         """
         Here, we consider the rewards that player action leads to approaching
         enemies in visible area.
-        The approaching reward is not based how far the distance between
-        the player and enemy, it's based that how many moves that the player
-        needs to get a shoot of position that enemy occupies.
+        There are two different approaching rewards:
+            - number of moves of player needs that it can get a clear shot of the enemy
+            - number of moves of player needs that it can touch the enemy
 
         Note: we have to first remove the enemy that can already be killed by the player
         action in previous step, e.g., if a player fire-right action can already kill
@@ -375,7 +398,6 @@ class RewardMaxStrategy(Stratey):
         logger.info(
             "==[Enemy approaching reward] player action: {}, player position: {}=="
             .format(str(player_action), player_position))
-        reward = 0
         # first, remove enemy that are already dead by player action
         all_enemies = list(enemies_positions_to_prob.keys())
         for enemy in all_enemies:
@@ -392,14 +414,26 @@ class RewardMaxStrategy(Stratey):
         all_target_positions = set()
         for positions, _ in enemies_positions_to_prob.values():
             all_target_positions.update(positions)
-        positions_to_shot_moves = self.clear_shot_moves(
+        positions_to_shot_moves, positions_to_move = self.moves_to_target(
             player_position, all_target_positions)
+        reward = 0
+        shot_approaching_reward, touch_approaching_reward = 0, 0
         for enemy, pos_to_proba in enemies_positions_to_prob.items():
             for pos, proba in zip(*pos_to_proba):
                 if pos in positions_to_shot_moves:
                     moves_to_shot = positions_to_shot_moves[pos]
                     # moves to shot is smaller, the reward is larger
-                    reward += 1 / (moves_to_shot + 1.0) * proba * 100
+                    shot_approaching_reward += 1 / (moves_to_shot +
+                                                    1.0) * proba * 100
+                if pos in positions_to_move:
+                    moves_to_touch = positions_to_move[pos]
+                    touch_approaching_reward += 1 / (moves_to_touch +
+                                                     1.0) * proba * 50
+        reward = shot_approaching_reward + touch_approaching_reward
+        logger.info(
+            "Enemy shot approaching reward:{}".format(shot_approaching_reward))
+        logger.info("Enemy touch approaching reward:{}".format(
+            touch_approaching_reward))
         logger.info("Final enemy approaching reward:{}".format(reward))
         return reward
 
@@ -424,33 +458,24 @@ class RewardMaxStrategy(Stratey):
         positions_to_visit = deque([])
         positions_to_visit.append((position, step))
 
-        steps_to_test = [4, 8, 12]
-        max_step = max(steps_to_test)
-        exploration = {}
-        for s in steps_to_test:
-            exploration[s] = {"unknown": 0, "known": 0, "heat": 0}
+        exploration = {"unknown": 0, "known": 0, "heat": 0}
         while len(positions_to_visit) > 0:
             (x, y), current_step = positions_to_visit.popleft()
             if (x, y) in seen_positions:
                 continue
             seen_positions.add((x, y))
-
             if self.env.board[y][x] == BoardState.FREE:
-                for s, stat in exploration.items():
-                    if current_step <= s:
-                        stat["heat"] += min(5, self.env.board_heatmap[y][x])
-                        stat["known"] += 1
+                exploration["heat"] += min(20, self.env.board_heatmap[y][x])
+                exploration["known"] += 1
             elif self.env.board[y][x] == BoardState.UNKNOWN:
-                for s, stat in exploration.items():
-                    if current_step <= s:
-                        stat["unknown"] += 1
-                        stat["heat"] += 5
+                exploration["heat"] += 20
+                exploration["unknown"] += 1
             else:
                 pass
 
             # if reach max step or the current pos is unknown, don't continue
-            if current_step + 1 > max_step or self.env.board[y][
-                    x] == BoardState.UNKNOWN:
+            if current_step + 1 > self.env.exploration_max_step or self.env.board[
+                    y][x] == BoardState.UNKNOWN:
                 continue
             # add next pos that are not already seen and invalid
             for action in list(MOVEACTION):
@@ -458,18 +483,8 @@ class RewardMaxStrategy(Stratey):
                 if (nx, ny) not in seen_positions and self.env.valid_pos(
                         nx, ny):
                     positions_to_visit.append(((nx, ny), current_step + 1))
-
         logger.info("Exploration statistics: {}".format(exploration))
         # calculate exploration reward
-        step_rewards = [
-            #  exploration[s]["known"] + exploration[s]["unknown"] * 2
-            exploration[s]["heat"] for s in steps_to_test
-        ]
-        logger.info("Exploration reward for steps: {}".format(step_rewards))
-        exploration_reward, last_r = 0, 0
-        alpha = 0.75
-        for i, r in enumerate(step_rewards):
-            exploration_reward += (r - last_r) * alpha**i
-            last_r = r
-        logger.info("Final exploration reward: {}".format(exploration_reward))
-        return exploration_reward
+        reward = exploration["heat"]
+        logger.info("Final exploration reward: {}".format(reward))
+        return reward
