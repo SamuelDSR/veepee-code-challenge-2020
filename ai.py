@@ -68,7 +68,7 @@ class RandomStrategy(Stratey):
 
 
 class RewardMaxStrategy(Stratey):
-    DEATH_REWARD = -2000
+    DEATH_REWARD = -2500
     KILL_NEUTRAL_REWARD = 1500
     KILL_HOSTILE_REWARD = 500
     KILL_OTHERS_REWARD = 750
@@ -105,9 +105,13 @@ class RewardMaxStrategy(Stratey):
             expected_enemy_move_combat_rewards.append(
                 self.enemy_move_combat_reward(p_action,
                                               agents_action_to_proba))
+            enemies_positions_to_prob={}
+            for ag in agents_action_to_proba:
+                if isinstance(ag, Enemy):
+                    enemies_positions_to_prob[ag] = agents_action_to_proba[ag]
             expected_enemy_approach_rewards.append(
                 self.enemy_approaching_reward(p_action,
-                                              agents_position_to_proba))
+                                              enemies_positions_to_prob))
         # sum of all combat rewards
         tot_combat_rewards = [
             expected_move_combat_rewards[i] +
@@ -383,12 +387,13 @@ class RewardMaxStrategy(Stratey):
                 if player_position == act.move(agent.x, agent.y):
                     if agent.is_neutral:
                         kill_enemies += proba
+                        print("proba: {}".format(proba))
                     else:
                         killed += proba
 
         logger.info("Killed: {}, kill_enemies: {}".format(
             killed, kill_enemies))
-        reward = killed * (-1500) + kill_enemies * 1500
+        reward = killed * RewardMaxStrategy.DEATH_REWARD + kill_enemies * RewardMaxStrategy.KILL_NEUTRAL_REWARD
         logger.info("Final enemy move combat reward:{}".format(reward))
         return reward
 
@@ -466,3 +471,13 @@ class RewardMaxStrategy(Stratey):
             "Chosing a next target position: {}".format(target_position))
         self.path_points = path_points
         self.target_position = target_position
+
+
+if __name__ == '__main__':
+    from env import RecurrentEnvironment
+    env = RecurrentEnvironment()
+    env.load_game_from_file()
+    env.player.can_shoot = True
+    strategy = RewardMaxStrategy(env)
+    print(strategy.best_action())
+
