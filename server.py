@@ -3,7 +3,7 @@
 
 from flask import Flask, request, jsonify
 from ai import RandomStrategy, RewardMaxStrategy
-from env import RecurrentEnvironment, RecordEnvironement
+from env import RecurrentEnvironment
 import sys
 
 USER = "slong"
@@ -15,9 +15,12 @@ server = Flask("AiServer-{tag}".format(tag=TAG))
 #  env = RecordEnvironement()
 #  strategy = RandomStrategy(env)
 
+GAME_DICT = {}
+
 env = RecurrentEnvironment()
 optim_strategy = RewardMaxStrategy(env)
 random_strategy = RandomStrategy(env)
+
 
 @server.route("/name", methods=["POST"])
 def get_username():
@@ -27,11 +30,24 @@ def get_username():
 @server.route("/move", methods=["POST"])
 def next_move():
     state = request.get_json()
+    game_id = state["game"]["id"]
+    if game_id not in GAME_DICT:
+        env = RecurrentEnvironment()
+        optim_strategy = RewardMaxStrategy(env)
+        random_strategy = RandomStrategy(env)
+        GAME_DICT[game_id] = {
+            "env": env,
+            "optim_strategy": optim_strategy,
+            "fallback": random_strategy
+        }
+    env = GAME_DICT[game_id]
+    optim_strategy = GAME_DICT["optim_strategy"]
+    fallback = GAME_DICT["fallback"]
     env.update(state)
     try:
         best_move = optim_strategy.best_action()
     except Exception:
-        best_move = random_strategy.best_action()
+        best_move = fallback.best_action()
     env.update_after_player_action(best_move)
     return jsonify(move=best_move)
 
