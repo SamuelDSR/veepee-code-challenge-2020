@@ -68,6 +68,11 @@ class RandomStrategy(Stratey):
 
 
 class RewardMaxStrategy(Stratey):
+    DEATH_REWARD = -2000
+    KILL_NEUTRAL_REWARD = 1500
+    KILL_HOSTILE_REWARD = 500
+    KILL_OTHERS_REWARD = 750
+
     def __init__(self, env):
         super().__init__(env)
         self.path_points = None
@@ -150,7 +155,8 @@ class RewardMaxStrategy(Stratey):
                            current_player.y) == last_path_point:
                 best_action = action
                 break
-        logger.info("Best action: {} using path planning".format(str(best_action)))
+        logger.info("Best action: {} using path planning".format(
+            str(best_action)))
         return str(best_action)
 
     def next_actions_of_others(self):
@@ -289,8 +295,9 @@ class RewardMaxStrategy(Stratey):
         logger.info(
             "Killed_by_others: {}, killed_by_enemies: {}, kill_enemies: {}".
             format(killed_by_others, killed_by_enemies, kill_enemies))
-        reward = (killed_by_enemies +
-                  killed_by_others) * (-1500) + kill_enemies * 1500
+        reward = (
+            killed_by_enemies + killed_by_others
+        ) * RewardMaxStrategy.DEATH_REWARD + kill_enemies * RewardMaxStrategy.KILL_NEUTRAL_REWARD
         logger.info("Final move combat: {}".format(reward))
         return reward
 
@@ -336,7 +343,9 @@ class RewardMaxStrategy(Stratey):
                         kill_others += proba
         logger.info("Killed: {}, kill_others: {}, kill_enemies: {}".format(
             killed, kill_others, kill_enemies))
-        reward = killed * (-1500) + kill_enemies * 500 + kill_others * 750
+        reward = killed * RewardMaxStrategy.DEATH_REWARD \
+            + kill_enemies * RewardMaxStrategy.KILL_HOSTILE_REWARD \
+            + kill_others * RewardMaxStrategy.KILL_OTHERS_REWARD
         logger.info("Final shoot reward:{}".format(reward))
         return reward
 
@@ -448,11 +457,12 @@ class RewardMaxStrategy(Stratey):
         """
         # first: chose a quadrant with most known cell to explore
         unknown_in_quadrant = self.env.unknown_in_quadrant(position)
-        logger.info("Unknown cells in each quadrant: {}".format(unknown_in_quadrant))
-        target_direction, count = max(unknown_in_quadrant,
-                                      key=lambda x: x[1])
+        logger.info(
+            "Unknown cells in each quadrant: {}".format(unknown_in_quadrant))
+        target_direction, count = max(unknown_in_quadrant, key=lambda x: x[1])
         path_points, target_position = self.env.bfs_walk(
             position, target_direction, target_position)
-        logger.info("Chosing a next target position: {}".format(target_position))
+        logger.info(
+            "Chosing a next target position: {}".format(target_position))
         self.path_points = path_points
         self.target_position = target_position
