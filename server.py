@@ -40,9 +40,10 @@ def next_move():
             "optim_strategy": optim_strategy,
             "fallback": random_strategy
         }
-    env = GAME_DICT[game_id]
-    optim_strategy = GAME_DICT["optim_strategy"]
-    fallback = GAME_DICT["fallback"]
+    game = GAME_DICT[game_id]
+    env = game["env"]
+    optim_strategy = game["optim_strategy"]
+    fallback = game["fallback"]
     env.update(state)
     try:
         best_move = optim_strategy.best_action()
