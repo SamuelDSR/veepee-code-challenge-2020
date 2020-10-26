@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from collections import deque
+from random import shuffle
 
 import attr
 import numpy as np
@@ -61,6 +62,47 @@ class RecurrentEnvironment(RecordEnvironement):
     short_range_y = attr.ib(default=None, init=False)
     other_players = attr.ib(default=[], init=False)
     enemies = attr.ib(default=[], init=False)
+
+    def load_game_from_file(self, path="board.txt"):
+        with Path(path).open("r") as f:
+            rows = f.readlines()
+        board_height = len(rows)
+        first_row = rows[0].strip().split("  ")
+        board_width = len(first_row)
+        board = [[BoardState.UNKNOWN for i in range(board_width)]
+                 for j in range(board_height)]
+
+        player = Player(x=0, y=0)
+        other_players = []
+        enemies = []
+
+        for j in range(board_height):
+            row = rows[j].split("  ")
+            for i, r in enumerate(row):
+                if r == '#':
+                    board[j][i] = BoardState.WALL
+                elif r == '_':
+                    board[j][i] = BoardState.FREE
+                elif r == "M":
+                    player.x, player.y = i, j
+                    board[j][i] = BoardState.FREE
+                elif r == "E":
+                    enemies.append(Enemy(i, j, is_neutral=False))
+                    board[j][i] = BoardState.FREE
+                elif r == 'O':
+                    enemies.append(Enemy(i, j, is_neutral=True))
+                    board[j][i] = BoardState.FREE
+                elif r == 'P':
+                    other_players.append(Player(i, j))
+                    board[j][i] = BoardState.FREE
+                else:
+                    pass
+        self.board = board
+        self.player = player
+        self.enemies = enemies
+        self.other_players = other_players
+        self.board_height = board_height
+        self.board_width = board_width
 
     def print_game_board(self):
         def _print_cell(c):
@@ -293,7 +335,7 @@ class RecurrentEnvironment(RecordEnvironement):
                 # if the nearest target position is in our quadrant, chose it
                 if allow_diretion is not None:
                     if (x - current_position[0]) * allow_diretion[0] >= 0 and\
-                            (y - current_position[1]) * allow_diretion[1] <= 0:
+                            (y - current_position[1]) * allow_diretion[1] >= 0:
                         target_position = (x, y)
                         break
 
@@ -305,7 +347,9 @@ class RecurrentEnvironment(RecordEnvironement):
             if self.board[y][x] == BoardState.UNKNOWN:
                 continue
 
-            for action in list(MOVEACTION):
+            move_actions = list(MOVEACTION)
+            shuffle(move_actions)
+            for action in move_actions:
                 if action == MOVEACTION.INVALID:
                     continue
                 nx, ny = action.move(x, y)
@@ -323,3 +367,10 @@ class RecurrentEnvironment(RecordEnvironement):
             pos = path_dict[pos]
         logger.info("The paths are: {}".format(paths))
         return paths, target_position
+
+
+if __name__ == '__main__':
+    env = RecurrentEnvironment()
+    env.load_game_from_file()
+    env.print_game_board()
+    env.bfs_walk((env.player.x, env.player.y), (1, -1))
