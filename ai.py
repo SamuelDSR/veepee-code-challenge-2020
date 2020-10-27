@@ -5,7 +5,7 @@ from random import choice
 
 from loguru import logger
 
-from common import FIREACTION, MOVEACTION, Enemy, Player, BoardState
+from common import FIREACTION, MOVEACTION, BoardState, Enemy, Player
 
 logger.remove()
 logger.add("run.log",
@@ -90,7 +90,6 @@ class RewardMaxStrategy(Stratey):
             ACTION_TO_PRIORITY[action] for action in player_next_actions
         ]
         agents_action_to_proba = self.next_actions_of_others()
-        agents_position_to_proba = self.next_positions_of_others()
 
         # for each action of player, we calculate the expected combat reward
         expected_move_combat_rewards = []
@@ -105,7 +104,7 @@ class RewardMaxStrategy(Stratey):
             expected_enemy_move_combat_rewards.append(
                 self.enemy_move_combat_reward(p_action,
                                               agents_action_to_proba))
-            enemies_positions_to_prob={}
+            enemies_positions_to_prob = {}
             for ag in agents_action_to_proba:
                 if isinstance(ag, Enemy):
                     enemies_positions_to_prob[ag] = agents_action_to_proba[ag]
@@ -134,31 +133,7 @@ class RewardMaxStrategy(Stratey):
                     max_reward, str(best_action)))
             return str(best_action)
 
-        # =============================================================================
-        # if there is no combat reward, set a target point to explore in the game board
-        # there are three cases where we need to recalculate the path points
-        # - the player chose to chase enemy in middle way
-        # - we reach the target position
-        # - we found that the target position is a wall (therefore unreachable)
-        # =============================================================================
-        target_position = self.target_position
-        if target_position is None or (current_player.x, current_player.y) == target_position or\
-                self.env.board[target_position[1]][target_position[0]] == BoardState.WALL:
-            self.next_target_point((current_player.x, current_player.y))
-
-        last_path_point = self.path_points.pop()
-        # player deviate from last path points
-        if abs(current_player.x - last_path_point[0]) + abs(
-                current_player.y - last_path_point[1]) > 1:
-            self.next_target_point((current_player.x, current_player.y),
-                                   target_position=self.target_position)
-            last_path_point = self.path_points.pop()
-
-        for action in list(MOVEACTION):
-            if action.move(current_player.x,
-                           current_player.y) == last_path_point:
-                best_action = action
-                break
+        best_action = self.path_planning()
         logger.info("Best action: {} using path planning".format(
             str(best_action)))
         return str(best_action)
@@ -398,7 +373,7 @@ class RewardMaxStrategy(Stratey):
         return reward
 
     def enemy_approaching_reward(self, player_action,
-                                 enemies_positions_to_prob):
+                                 enemies_action_to_prob):
         """
         Here, we consider the rewards that player action leads to approaching
         enemies in visible area.
@@ -417,26 +392,25 @@ class RewardMaxStrategy(Stratey):
             "==[Enemy approaching reward] player action: {}, player position: {}=="
             .format(str(player_action), player_position))
         # first, remove enemy that are already dead by player action
-        all_enemies = list(enemies_positions_to_prob.keys())
+        all_enemies = list(enemies_action_to_prob.keys())
         for enemy in all_enemies:
             if isinstance(player_action, MOVEACTION):
                 if player_position == (enemy.x, enemy.y) and enemy.is_neutral:
-                    del enemies_positions_to_prob[enemy]
+                    del enemies_action_to_prob[enemy]
             elif isinstance(player_action, FIREACTION):
                 if self.env.can_shoot(player_position, player_action,
                                       (enemy.x, enemy.y)):
-                    del enemies_positions_to_prob[enemy]
+                    del enemies_action_to_prob[enemy]
             else:
                 pass
 
         all_target_positions = set()
-        for positions, _ in enemies_positions_to_prob.values():
+        for positions, _ in enemies_action_to_prob.values():
             all_target_positions.update(positions)
         positions_to_shot_moves, positions_to_move = self.moves_to_target(
             player_position, all_target_positions)
-        reward = 0
-        shot_approaching_reward, touch_approaching_reward = 0, 0
-        for enemy, pos_to_proba in enemies_positions_to_prob.items():
+        reward, shot_approaching_reward, touch_approaching_reward = 0, 0, 0
+        for enemy, pos_to_proba in enemies_action_to_prob.items():
             for pos, proba in zip(*pos_to_proba):
                 if pos in positions_to_shot_moves:
                     moves_to_shot = positions_to_shot_moves[pos]
@@ -469,8 +443,45 @@ class RewardMaxStrategy(Stratey):
             position, target_direction, target_position)
         logger.info(
             "Chosing a next target position: {}".format(target_position))
-        self.path_points = path_points
-        self.target_position = target_position
+        return path_points, target_position
+
+    def path_planning(self):
+        """
+        Return the next move action acoording to the path planning algorithm
+        # =============================================================================
+        # if there is no combat reward, set a target point to explore in the game board
+        # there are three cases where we need to recalculate the path points
+        # - the player chose to chase enemy in middle way
+        # - we reach the target position
+        # - we found that the target position is a wall (therefore unreachable)
+        # - there is no path points left to follow
+        # =============================================================================
+        """
+        target_position = self.target_position
+        current_player = self.env.player
+
+        if target_position is None or\
+                (current_player.x, current_player.y) == target_position or\
+                self.env.board[target_position[1]][target_position[0]] == BoardState.WALL or\
+                len(self.path_points) == 0:
+            # create a new target point
+            self.path_points, self.target_position = self.next_target_point(
+                (current_player.x, current_player.y))
+
+        next_path_point = self.path_points.pop()
+        # if we find player deviate from last path points, recreate a new target point
+        if abs(current_player.x - next_path_point[0]) + \
+                abs(current_player.y - next_path_point[1]) > 1:
+            # recalculate path using previous target position
+            logger.info("Player deviate from previous path, create a new target")
+            self.path_points, self.target_position = self.next_target_point(
+                (current_player.x, current_player.y))
+            next_path_point = self.path_points.pop()
+
+        for action in list(MOVEACTION):
+            if action.move(current_player.x,
+                           current_player.y) == next_path_point:
+                return action
 
 
 if __name__ == '__main__':
@@ -480,4 +491,3 @@ if __name__ == '__main__':
     env.player.can_shoot = True
     strategy = RewardMaxStrategy(env)
     print(strategy.best_action())
-
