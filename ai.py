@@ -403,13 +403,19 @@ class RewardMaxStrategy(Stratey):
                 pass
 
         all_target_positions = set()
-        for positions, _ in enemies_action_to_prob.values():
-            all_target_positions.update(positions)
+        for enemy, action_to_proba in enemies_action_to_prob.items():
+            for act in action_to_proba[0]:
+                all_target_positions.add(act.move(enemy.x, enemy.y))
+
         positions_to_shot_moves, positions_to_move = self.moves_to_target(
             player_position, all_target_positions)
+        logger.info("Position to shot moves: {}".format(positions_to_shot_moves))
+        logger.info("Position to touch moves: {}".format(positions_to_move))
+
         reward, shot_approaching_reward, touch_approaching_reward = 0, 0, 0
-        for enemy, pos_to_proba in enemies_action_to_prob.items():
-            for pos, proba in zip(*pos_to_proba):
+        for enemy, action_to_proba in enemies_action_to_prob.items():
+            for action, proba in zip(*action_to_proba):
+                pos = action.move(enemy.x, enemy.y)
                 if pos in positions_to_shot_moves:
                     moves_to_shot = positions_to_shot_moves[pos]
                     # moves to shot is smaller, the reward is larger
