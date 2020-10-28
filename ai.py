@@ -440,28 +440,21 @@ class RewardMaxStrategy(Stratey):
         """
         if self.env.exploration_mode == "unknown":
             # chose a quadrant with most unknown cell to explore
-            stats_in_quadrant = self.env.unknown_in_quadrant(position)
-            target_direction, count = max(stats_in_quadrant,
-                                          key=lambda x: x[1])
+            stats_in_quadrant = sorted(self.env.unknown_in_quadrant(position),
+                                       key=lambda x: x[1],
+                                       reverse=True)
             logger.info(
                 "Unknown cells in each quadrant: {}".format(stats_in_quadrant))
         else:
             # chose a quadrant with least visits cell to explore
-            stats_in_quadrant = self.env.visits_in_quadrant(position)
-            target_direction, count = max(stats_in_quadrant,
-                                          key=lambda x: x[1])
-            # if in heatmap mode, manually chose an target point with largest visits heatmap
-            free_points = [(i, j) for j in range(self.env.board_height)
-                           for i in range(self.env.board_width)
-                           if self.env.board[j][i] == BoardState.FREE and
-                           (i - position[0]) * target_direction[0] >= 0 and
-                           (j - position[1]) * target_direction[1] >= 0]
-            target_position = choice(free_points)
-            logger.info("Visits heatmap in each quadrant: {}, chose a new target point: {}".format(
-                stats_in_quadrant, target_position))
+            stats_in_quadrant = sorted(self.env.visits_in_quadrant(position),
+                                       key=lambda x: x[1],
+                                       reverse=True)
+            logger.info("Visits heatmap in each quadrant: {}".format(stats_in_quadrant))
 
+        sorted_allow_diretions = [s[0] for s in stats_in_quadrant]
         path_points, target_position = self.env.bfs_walk(
-            position, target_direction, target_position)
+            position, sorted_allow_diretions, target_position, self.env.exploration_mode)
         logger.info(
             "Chosing a next target position: {}".format(target_position))
         return path_points, target_position
@@ -511,7 +504,7 @@ if __name__ == '__main__':
     env = RecurrentEnvironment()
     env.load_game_from_file()
     env.player.can_shoot = True
-    env.exploration_mode = "heatmap"
+    env.exploration_mode = "unknown"
     env.board_heatmap = np.random.randint(0, 100, size=(env.board_height, env.board_width))
     strategy = RewardMaxStrategy(env)
     print(strategy.best_action())

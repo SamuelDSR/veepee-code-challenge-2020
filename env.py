@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 import json
 from pathlib import Path
-from collections import deque
-from random import shuffle
+from collections import deque, defaultdict
+from random import shuffle, choice
 
 import attr
 import numpy as np
@@ -346,8 +346,9 @@ class RecurrentEnvironment(RecordEnvironement):
 
     def bfs_walk(self,
                  current_position,
-                 allow_diretion=None,
-                 target_position=None):
+                 sorted_allow_diretions=None,
+                 target_position=None,
+                 exploration_mode="unknown"):
         """
         Do a breadth-first walk to find the shortest available path
         from <current_position> to <target_position>
@@ -370,30 +371,22 @@ class RecurrentEnvironment(RecordEnvironement):
         # children => parent
         path_dict = {}
 
+        unknown_cells = []
+        free_cells = []
+
         while len(positions_to_visit) > 0:
             (x, y), current_step = positions_to_visit.popleft()
             if (x, y) in seen_positions:
                 continue
             seen_positions.add((x, y))
-            if target_position is None and self.board[y][
-                    x] == BoardState.UNKNOWN:
-                # if the nearest target position is in our quadrant, chose it
-                if allow_diretion is not None:
-                    if (x - current_position[0]) * allow_diretion[0] >= 0 and\
-                            (y - current_position[1]) * allow_diretion[1] >= 0:
-                        target_position = (x, y)
-                        break
-
-            if (x, y) == target_position:
-                break
-
             # add next search targets
             # bugfix: will not search a path with all unknown path
             if self.board[y][x] == BoardState.UNKNOWN:
+                unknown_cells.append((x, y))
                 continue
-
+            else:
+                free_cells.append((x, y))
             move_actions = list(MOVEACTION)
-            shuffle(move_actions)
             for action in move_actions:
                 if action == MOVEACTION.INVALID:
                     continue
@@ -402,10 +395,38 @@ class RecurrentEnvironment(RecordEnvironement):
                     positions_to_visit.append(((nx, ny), current_step + 1))
                     path_dict[(nx, ny)] = (x, y)
 
+        # need to chose an target position
+        if target_position is None:
+            unknown_cells_by_directions = defaultdict(list)
+            for x, y in unknown_cells:
+                for d in sorted_allow_diretions:
+                    if (x - current_position[0]) * d[0] >= 0 and\
+                            (y - current_position[1])*d[1] >= 0:
+                        unknown_cells_by_directions[d].append((x, y))
+
+            free_cells_by_directions = defaultdict(list)
+            for x, y in free_cells:
+                for d in sorted_allow_diretions:
+                    if (x - current_position[0]) * d[0] >= 0 and\
+                            (y - current_position[1])*d[1] >=0:
+                        free_cells_by_directions[d].append((x, y))
+
+            if exploration_mode == "unknown":
+                for d in sorted_allow_diretions:
+                    if len(unknown_cells_by_directions[d]) > 0:
+                        target_position = choice(
+                            unknown_cells_by_directions[d])
+                        break
+            else:
+                for d in sorted_allow_diretions:
+                    if len(free_cells_by_directions[d]) > 0:
+                        target_position = choice(free_cells_by_directions[d])
+                        break
         paths = []
         # after reaching the target position,  get the paths
         logger.info("Player current position: {}".format(current_position))
         logger.info("Bfs walk: target position: {}".format(target_position))
+        logger.info("Target point is : {}".format(target_position))
         pos = target_position
         while pos != current_position:
             paths.append(pos)
@@ -418,4 +439,6 @@ if __name__ == '__main__':
     env = RecurrentEnvironment()
     env.load_game_from_file()
     env.print_game_board()
-    env.bfs_walk((env.player.x, env.player.y), (1, -1))
+    target_directions = [(-1, 1), (1, 1), (1, -1), (-1, -1)]
+    #  shuffle(target_directions)
+    env.bfs_walk((env.player.x, env.player.y), target_directions, exploration_mode="heatmap")
