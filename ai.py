@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from collections import deque
-from random import choice
+from random import choice, random
 
 from loguru import logger
 
@@ -486,10 +486,18 @@ class RewardMaxStrategy(Stratey):
         # if we find player deviate from last path points, recreate a new target point
         if abs(current_player.x - next_path_point[0]) + \
                 abs(current_player.y - next_path_point[1]) > 1:
-            logger.info(
-                "Player deviate from previous path, create a new target")
-            self.path_points, self.target_position = self.next_target_point(
-                (current_player.x, current_player.y))
+            rnd = random()
+            if rnd > 0.5:
+                logger.info(
+                    "Player deviate from previous path, create a new target")
+                self.path_points, self.target_position = self.next_target_point(
+                    (current_player.x, current_player.y))
+            else:
+                logger.info(
+                    "Player deviate from previous path, but stick to it")
+                self.path_points, self.target_position = self.next_target_point(
+                    (current_player.x, current_player.y), self.target_position)
+
             next_path_point = self.path_points.pop()
 
         for action in list(MOVEACTION):
