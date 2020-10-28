@@ -362,7 +362,6 @@ class RewardMaxStrategy(Stratey):
                 if player_position == act.move(agent.x, agent.y):
                     if agent.is_neutral:
                         kill_enemies += proba
-                        print("proba: {}".format(proba))
                     else:
                         killed += proba
 
@@ -372,8 +371,7 @@ class RewardMaxStrategy(Stratey):
         logger.info("Final enemy move combat reward:{}".format(reward))
         return reward
 
-    def enemy_approaching_reward(self, player_action,
-                                 enemies_action_to_prob):
+    def enemy_approaching_reward(self, player_action, enemies_action_to_prob):
         """
         Here, we consider the rewards that player action leads to approaching
         enemies in visible area.
@@ -434,11 +432,28 @@ class RewardMaxStrategy(Stratey):
         From the base pos, select a reachable unknown point according to some metrics,
         then if there is no enemies around, the agent try to reach the target point.
         """
-        # first: chose a quadrant with most known cell to explore
-        unknown_in_quadrant = self.env.unknown_in_quadrant(position)
-        logger.info(
-            "Unknown cells in each quadrant: {}".format(unknown_in_quadrant))
-        target_direction, count = max(unknown_in_quadrant, key=lambda x: x[1])
+        if self.env.exploration_mode == "unknown":
+            # chose a quadrant with most unknown cell to explore
+            stats_in_quadrant = self.env.unknown_in_quadrant(position)
+            target_direction, count = max(stats_in_quadrant,
+                                          key=lambda x: x[1])
+            logger.info(
+                "Unknown cells in each quadrant: {}".format(stats_in_quadrant))
+        else:
+            # chose a quadrant with least visits cell to explore
+            stats_in_quadrant = self.env.visits_in_quadrant(position)
+            target_direction, count = max(stats_in_quadrant,
+                                          key=lambda x: x[1])
+            # if in heatmap mode, manually chose an target point with largest visits heatmap
+            free_points = [(i, j) for j in range(self.env.board_height)
+                           for i in range(self.env.board_width)
+                           if self.env.board[j][i] == BoardState.FREE and
+                           (i - position[0]) * target_direction[0] >= 0 and
+                           (j - position[1]) * target_direction[1] >= 0]
+            target_position = choice(free_points)
+            logger.info("Visits heatmap in each quadrant: {}, chose a new target point: {}".format(
+                stats_in_quadrant, target_position))
+
         path_points, target_position = self.env.bfs_walk(
             position, target_direction, target_position)
         logger.info(
@@ -472,8 +487,8 @@ class RewardMaxStrategy(Stratey):
         # if we find player deviate from last path points, recreate a new target point
         if abs(current_player.x - next_path_point[0]) + \
                 abs(current_player.y - next_path_point[1]) > 1:
-            # recalculate path using previous target position
-            logger.info("Player deviate from previous path, create a new target")
+            logger.info(
+                "Player deviate from previous path, create a new target")
             self.path_points, self.target_position = self.next_target_point(
                 (current_player.x, current_player.y))
             next_path_point = self.path_points.pop()
@@ -486,8 +501,11 @@ class RewardMaxStrategy(Stratey):
 
 if __name__ == '__main__':
     from env import RecurrentEnvironment
+    import numpy as np
     env = RecurrentEnvironment()
     env.load_game_from_file()
     env.player.can_shoot = True
+    env.exploration_mode = "heatmap"
+    env.board_heatmap = np.random.randint(0, 100, size=(env.board_height, env.board_width))
     strategy = RewardMaxStrategy(env)
     print(strategy.best_action())

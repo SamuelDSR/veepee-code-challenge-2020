@@ -50,6 +50,8 @@ class RecurrentEnvironment(RecordEnvironement):
     board_width = attr.ib(default=None, init=False)
     board_height = attr.ib(default=None, init=False)
     board_list = attr.ib(default=[], init=False)
+    unknown_threshold = attr.ib(default=None, init=False)
+    exploration_mode = attr.ib(default="unknown", init=False)
 
     # visible area
     varea_x1 = attr.ib(default=-1, init=False)
@@ -197,6 +199,22 @@ class RecurrentEnvironment(RecordEnvironement):
         for w in wall:
             self.board[w["y"]][w["x"]] = BoardState.WALL
 
+        if self.unknown_threshold is None:
+            self.unknown_threshold = int(self.board_width * self.board_height *
+                                         0.1)
+            logger.info("Unknown threshold in board: {}".format(
+                self.unknown_threshold))
+
+        # init all visible area as free space
+        number_of_unknowns = 0
+        for x in range(self.board_width):
+            for y in range(self.board_height):
+                if self.board[y][x] == BoardState.UNKNOWN:
+                    number_of_unknowns += 1
+        logger.info("unknown cells in board: {}".format(number_of_unknowns))
+        if number_of_unknowns < self.unknown_threshold:
+            self.exploration_mode = "heatmap"
+
     def update_other_players(self, state):
         players = state["players"]
         self.other_players = [Player(x=p['x'], y=p['y']) for p in players]
@@ -253,7 +271,9 @@ class RecurrentEnvironment(RecordEnvironement):
         player = state["player"]
         self.player.x = player["position"]["x"]
         self.player.y = player["position"]["y"]
-        logger.info("=================Player position: {}===================".format((self.player.x, self.player.y)))
+        logger.info(
+            "=================Player position: {}===================".format(
+                (self.player.x, self.player.y)))
         self.player.can_shoot = player["fire"]
         self.player.positions.append((self.player.x, self.player.y))
         if self.short_range_x is None:
@@ -303,7 +323,31 @@ class RecurrentEnvironment(RecordEnvironement):
         return [((-1, -1), upper_left), ((1, -1), upper_right),
                 ((-1, 1), down_left), ((1, 1), down_right)]
 
-    def bfs_walk(self, current_position, allow_diretion=None, target_position=None):
+    def visits_in_quadrant(self, position):
+        """
+        Divide the game board as four quadrant according to position.
+        Then calculate the visit heatmap for each quadrant
+        """
+        bx, by = position
+        upper_left, upper_right, down_left, down_right = 0, 0, 0, 0
+        for y in range(self.board_height):
+            for x in range(self.board_width):
+                if self.board[y][x] == BoardState.FREE:
+                    if x < bx and y < by:
+                        upper_left += self.board_heatmap[y][x]
+                    elif x < bx and y > by:
+                        down_left += self.board_heatmap[y][x]
+                    elif x > bx and y < by:
+                        upper_right += self.board_heatmap[y][x]
+                    else:
+                        down_right += self.board_heatmap[y][x]
+        return [((-1, -1), upper_left), ((1, -1), upper_right),
+                ((-1, 1), down_left), ((1, 1), down_right)]
+
+    def bfs_walk(self,
+                 current_position,
+                 allow_diretion=None,
+                 target_position=None):
         """
         Do a breadth-first walk to find the shortest available path
         from <current_position> to <target_position>
@@ -331,7 +375,8 @@ class RecurrentEnvironment(RecordEnvironement):
             if (x, y) in seen_positions:
                 continue
             seen_positions.add((x, y))
-            if target_position is None and self.board[y][x] == BoardState.UNKNOWN:
+            if target_position is None and self.board[y][
+                    x] == BoardState.UNKNOWN:
                 # if the nearest target position is in our quadrant, chose it
                 if allow_diretion is not None:
                     if (x - current_position[0]) * allow_diretion[0] >= 0 and\
